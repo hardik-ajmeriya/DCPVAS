@@ -1,39 +1,51 @@
 import { useEffect, useMemo, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
-import { getExecutions, getExecution } from '../services/api.js';
+import { getLatestPipeline } from '../services/api.js';
 
 export default function Dashboard({ mode }) {
-  const [pipeline, setPipeline] = useState(null);
-  const [latestId, setLatestId] = useState(null);
+  const [latest, setLatest] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    async function loadLatestExecution() {
+    async function load() {
       try {
-        const list = await getExecutions();
-        if (Array.isArray(list) && list.length) {
-          const latest = list[0];
-          setLatestId(latest._id);
-          const detail = await getExecution(latest._id);
-          setPipeline(detail);
-        } else {
-          setPipeline(null);
-        }
+        setLoading(true);
+        const data = await getLatestPipeline();
+        setLatest(data);
+        setError('');
       } catch (e) {
-        console.error('Failed to load latest execution:', e?.message || e);
+        setError('Failed to load latest');
+        setLatest(null);
+      } finally {
+        setLoading(false);
       }
     }
 
-    loadLatestExecution();
-    const t = setInterval(loadLatestExecution, 10000);
-    return () => clearInterval(t);
+    load();
+    // Initial load only; polling handled in another effect
   }, []);
+  // Poll every 3s while analysis is in progress; stop when ready
+  useEffect(() => {
+    if (!latest || latest.analysisStatus !== 'ANALYSIS_IN_PROGRESS') return;
+    const t = setInterval(async () => {
+      try {
+        const data = await getLatestPipeline();
+        setLatest(data);
+        if (data.analysisStatus === 'READY') {
+          clearInterval(t);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(t);
+  }, [latest?.analysisStatus]);
 
   const lastUpdatedLabel = useMemo(() => {
-    if (!pipeline?.executedAt && !pipeline?.lastUpdated && !pipeline?.startedAt) return null;
-    const basis = pipeline.executedAt || pipeline.lastUpdated || pipeline.startedAt;
+    if (!latest?.executedAt) return null;
+    const basis = latest.executedAt;
     const diff = Math.floor((Date.now() - new Date(basis).getTime()) / 1000);
     return `Last updated: ${diff}s ago`;
-  }, [pipeline]);
+  }, [latest]);
 
   return (
     <div className="p-4 space-y-4">
@@ -45,7 +57,37 @@ export default function Dashboard({ mode }) {
         </div>
       </div>
 
-      <FailureAnalysis run={pipeline} />
+      {loading && <div className="text-sm text-gray-500">Loading…</div>}
+      {error && <div className="text-sm text-red-600">{error}</div>}
+
+      {latest && (
+        <div className="p-4 bg-white rounded shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-lg font-semibold">{latest.jobName || 'Pipeline'}</div>
+              <div className="text-sm text-gray-600">Build #{latest.buildNumber}</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`px-2 py-1 rounded text-xs ${latest.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : latest.status === 'FAILURE' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                {latest.status}
+              </span>
+              {latest?.failedStage && (
+                <span className="text-xs text-gray-600">Failed Stage: {latest.failedStage}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {latest && <FailureAnalysis run={latest} />}
+      {latest && latest.analysisStatus === 'ANALYSIS_IN_PROGRESS' && (
+        <div className="text-sm text-gray-600 mt-2">
+          Analyzing logs… please wait
+          {latest.analysisStep && (
+            <span className="ml-2">(Step: {latest.analysisStep})</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
