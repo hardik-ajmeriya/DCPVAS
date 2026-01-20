@@ -4,8 +4,10 @@
 
 import axios from 'axios';
 import { cleanJenkinsLogs } from './logSanitizer.js';
-import PipelineRun from '../models/PipelineRun.js';
-import { analyzeJenkinsLog } from './strictAnalyzer.js';
+import { decodeJenkinsConsole } from './logDecoder.js';
+import PipelineRawLog from '../models/PipelineRawLog.js';
+import PipelineAIAnalysis from '../models/PipelineAIAnalysis.js';
+import { storeAIAnalysisForRawLog } from './openaiService.js';
 
 function getEnv() {
   return {
@@ -86,23 +88,19 @@ async function fetchRecentBuildsJson(limit = 50) {
 }
 
 async function fetchFullLog(buildNumber) {
-  let start = 0;
-  let complete = false;
-  let content = '';
-  while (!complete) {
-    const url = `${buildJobPath()}/${buildNumber}/logText/progressiveText?start=${start}`;
-    const res = await getClient().get(url, { responseType: 'text', transformResponse: [(d) => d] });
-    const chunk = res.data || '';
-    content += chunk;
-    const more = res.headers['x-more-data'] === 'true';
-    const size = parseInt(res.headers['x-text-size'] || '0', 10);
-    if (!more) {
-      complete = true;
-    } else {
-      start = size;
-      if (start > 5_000_000) complete = true;
-    }
-  }
+  // Fetch from /consoleText as plain text, with identity encoding
+  const url = `${buildJobPath()}/${buildNumber}/consoleText`;
+  const res = await getClient().get(url, {
+    responseType: 'text',
+    transformResponse: [(d) => d],
+    headers: { 'Accept': 'text/plain', 'Accept-Encoding': 'identity' },
+  });
+  const content = res.data || '';
+  // Log first 10 lines for validation
+  try {
+    const preview = String(content).split(/\r?\n/).slice(0, 10).join('\n');
+    console.log('[Jenkins consoleText preview]\n' + preview);
+  } catch {}
   return content;
 }
 
@@ -175,6 +173,8 @@ async function updateCacheOnce() {
   let stages = cache.stages;
   if (normalized && normalized.buildNumber !== cache.buildNumber) {
     logs = await fetchFullLog(normalized.buildNumber);
+    // Remove Jenkins console notes / transport artifacts
+    logs = decodeJenkinsConsole(logs);
     stages = await fetchStages(normalized.buildNumber);
   }
   cache = {
@@ -185,31 +185,33 @@ async function updateCacheOnce() {
     stages,
   };
 
-  // Persist completed executions to MongoDB (no overwrite, one per build)
+  // Persist original Jenkins data to pipeline_raw_logs (insert once per build)
   try {
     if (normalized && normalized.buildNumber != null) {
       const statusNorm = normalized.status === 'FAILED' ? 'FAILURE' : normalized.status === 'SUCCESS' ? 'SUCCESS' : normalized.status;
       // Only save once job is complete (SUCCESS or FAILURE)
       if (statusNorm === 'SUCCESS' || statusNorm === 'FAILURE') {
         const jobName = getEnv().JENKINS_JOB || 'unknown-job';
-        const exists = await PipelineRun.findOne({ jobName, buildNumber: normalized.buildNumber }).lean();
+        const exists = await PipelineRawLog.findOne({ jobName, buildNumber: normalized.buildNumber }).lean();
         if (!exists) {
-          const cleaned = cleanJenkinsLogs(logs);
-          const { humanSummary, suggestedFix, technicalRecommendation, failedStage: analyzedFailedStage } = analyzeJenkinsLog(cleaned);
-          const stageFailed = Array.isArray(stages) ? (stages.find((s) => s.status === 'FAILED')?.name || null) : null;
-          const failedStage = stageFailed || analyzedFailedStage || null;
-          await PipelineRun.create({
+          const consoleUrl = `${getEnv().JENKINS_URL}${buildJobPath()}/${normalized.buildNumber}/console`;
+          const rawDoc = await PipelineRawLog.create({
             jobName,
             buildNumber: normalized.buildNumber,
             status: statusNorm,
-            failedStage,
-            humanSummary,
-            suggestedFix,
-            technicalRecommendation,
-            rawLogs: cleaned,
+            stages,
+            // Store cleaned, human-readable logs (strip Jenkins console notes)
+            rawLogs: decodeJenkinsConsole(logs || ''),
+            consoleUrl,
             executedAt: new Date(),
           });
-          console.log(`Saved execution ${jobName} #${normalized.buildNumber} (${statusNorm})`);
+          console.log(`Saved raw logs ${jobName} #${normalized.buildNumber} (${statusNorm})`);
+          // Fire-and-forget async AI analysis; do not block polling
+          Promise.resolve()
+            .then(() => storeAIAnalysisForRawLog(rawDoc))
+            .catch((err) => {
+              console.error('AI analysis scheduling failed:', err?.message || err);
+            });
         }
       }
     }
@@ -236,6 +238,9 @@ function startPoller(intervalMs = 12000) {
 
 export function initJenkinsPolling() {
   startPoller();
+  // Also ensure any previously stored raw logs without AI analysis get processed
+  ensureMissingAnalysesScheduled().catch(() => {});
+  setInterval(() => ensureMissingAnalysesScheduled().catch(() => {}), 30000);
 }
 
 export async function getLatestCached() {
@@ -278,7 +283,8 @@ export async function getBuildDetails(buildNumber) {
   const url = `${buildJobPath()}/${buildNumber}/api/json`;
   const { data } = await getClient().get(url);
   const run = normalizeBuild(data);
-  const logs = await fetchFullLog(buildNumber);
+  let logs = await fetchFullLog(buildNumber);
+  logs = decodeJenkinsConsole(logs);
   const stages = await fetchStages(buildNumber);
   return {
     lastUpdated: new Date().toISOString(),
@@ -286,4 +292,20 @@ export async function getBuildDetails(buildNumber) {
     logs,
     stages,
   };
+}
+
+// Scan recent raw logs and schedule AI analysis for any missing entries
+async function ensureMissingAnalysesScheduled() {
+  try {
+    const raws = await PipelineRawLog.find().sort({ executedAt: -1 }).limit(5);
+    for (const raw of raws) {
+      const ai = await PipelineAIAnalysis.findOne({ jobName: raw.jobName, buildNumber: raw.buildNumber }).sort({ updatedAt: -1 }).lean();
+      if (!ai) {
+        console.log(`[AI] Scheduling missing analysis for build #${raw.buildNumber}`);
+        await storeAIAnalysisForRawLog(raw);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to schedule missing analyses:', err?.message || err);
+  }
 }

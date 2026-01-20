@@ -1,4 +1,4 @@
-import { analyzeLogsWithOpenAI } from '../services/openaiService.js';
+import { analyzeCleanedLogsStrict } from '../services/openaiService.js';
 import { cleanJenkinsLogs } from '../services/logSanitizer.js';
 import OpenAI from 'openai';
 
@@ -79,16 +79,9 @@ export async function testAnalyzeLog(req, res) {
   try {
     const log = String(req.body?.log || '');
     if (!log) return res.status(400).json({ error: 'Missing log in request body' });
-    // Send verbatim logs to model per requirements (no cleaning)
-    const json = await analyzeLogsWithOpenAI({ logs: log });
-    const out = {
-      humanSummary: json?.humanSummary || '',
-      suggestedFix: json?.suggestedFix || '',
-      technicalRecommendation: json?.technicalRecommendation || '',
-      failedStage: json?.failedStage || '',
-      detectedError: json?.detectedError || '',
-    };
-    return res.json(out);
+    const cleaned = cleanJenkinsLogs(log);
+    const json = await analyzeCleanedLogsStrict(cleaned);
+    return res.json(json);
   } catch (e) {
     if (e?.status === 429) return res.status(429).json({ error: 'AI quota exceeded', retryAfter: 'later' });
     return res.status(502).json({ error: e?.message || 'OpenAI analysis failed' });
