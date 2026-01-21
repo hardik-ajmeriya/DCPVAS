@@ -96,13 +96,13 @@ export default {
   getFailuresTimeline,
 };
 
-export async function reanalyzeBuild(buildNumber) {
+export async function reanalyzeBuild(buildNumber, options = {}) {
   const raw = await PipelineRawLog.findOne({ buildNumber }).lean();
   if (!raw) return null;
   // Re-fetch full document for _id
   const rawDoc = await PipelineRawLog.findById(raw._id);
   // Import here to avoid circular deps if any
   const { storeAIAnalysisForRawLog } = await import('./openaiService.js');
-  const analysis = await storeAIAnalysisForRawLog(rawDoc);
+  const analysis = await storeAIAnalysisForRawLog(rawDoc, options);
   return analysis;
 }

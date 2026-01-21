@@ -8,36 +8,45 @@ import { decodeJenkinsConsole } from './logDecoder.js';
 import PipelineRawLog from '../models/PipelineRawLog.js';
 import PipelineAIAnalysis from '../models/PipelineAIAnalysis.js';
 import { storeAIAnalysisForRawLog } from './openaiService.js';
+import JenkinsSettings from '../models/jenkinsSettings.js';
+import { decrypt } from './cryptoService.js';
 
-function getEnv() {
+// Optional Socket.IO instance for emitting real-time events
+let io = null;
+export function setSocketIO(socketInstance) {
+  io = socketInstance || null;
+}
+
+export async function getJenkinsConfig() {
+  const settings = await JenkinsSettings.findOne();
+  if (!settings) throw new Error('Jenkins not configured');
+
   return {
+    baseUrl: settings.jenkinsUrl,
+    jobName: settings.jobName,
+    auth: {
+      username: settings.username,
+      password: decrypt(settings.apiToken),
+    },
+  };
+}
+
+// Keep existing signature for external callers (diagnostics), but internal logic uses DB config.
+export function isLiveEnabled() {
+  const { JENKINS_URL, JENKINS_JOB, JENKINS_USER, JENKINS_TOKEN } = {
     JENKINS_URL: process.env.JENKINS_URL,
     JENKINS_JOB: process.env.JENKINS_JOB,
     JENKINS_USER: process.env.JENKINS_USER,
     JENKINS_TOKEN: process.env.JENKINS_TOKEN,
   };
-}
-
-export function isLiveEnabled() {
-  const { JENKINS_URL, JENKINS_JOB, JENKINS_USER, JENKINS_TOKEN } = getEnv();
   return !!(JENKINS_URL && JENKINS_JOB && JENKINS_USER && JENKINS_TOKEN);
 }
 
-function getEnvStatus() {
-  const { JENKINS_URL, JENKINS_JOB, JENKINS_USER, JENKINS_TOKEN } = getEnv();
-  return {
-    hasUrl: !!JENKINS_URL,
-    hasJob: !!JENKINS_JOB,
-    hasUser: !!JENKINS_USER,
-    hasToken: !!JENKINS_TOKEN,
-  };
-}
-
-function getClient() {
-  const { JENKINS_URL, JENKINS_USER, JENKINS_TOKEN } = getEnv();
+async function getClient() {
+  const cfg = await getJenkinsConfig();
   return axios.create({
-    baseURL: JENKINS_URL,
-    auth: { username: JENKINS_USER || '', password: JENKINS_TOKEN || '' },
+    baseURL: cfg.baseUrl,
+    auth: { username: cfg.auth.username || '', password: cfg.auth.password || '' },
     timeout: 15000,
   });
 }
@@ -64,23 +73,25 @@ function normalizeBuild(json) {
   };
 }
 
-function buildJobPath() {
-  const { JENKINS_JOB } = getEnv();
-  const parts = (JENKINS_JOB || '').split('/').filter(Boolean);
+async function buildJobPath() {
+  const { jobName } = await getJenkinsConfig();
+  const parts = (jobName || '').split('/').filter(Boolean);
   return parts.map((p) => `/job/${encodeURIComponent(p)}`).join('');
 }
 
 async function fetchLatestBuildJson() {
-  const url = `${buildJobPath()}/lastBuild/api/json`;
-  const { data } = await getClient().get(url);
+  const url = `${await buildJobPath()}/lastBuild/api/json`;
+  const client = await getClient();
+  const { data } = await client.get(url);
   return data;
 }
 
 async function fetchRecentBuildsJson(limit = 50) {
   // Fetch builds list; Jenkins supports tree filtering. We'll fetch full list and slice in JS.
   const tree = `builds[number,result,building,timestamp,duration]`;
-  const url = `${buildJobPath()}/api/json?tree=${encodeURIComponent(tree)}`;
-  const { data } = await getClient().get(url);
+  const url = `${await buildJobPath()}/api/json?tree=${encodeURIComponent(tree)}`;
+  const client = await getClient();
+  const { data } = await client.get(url);
   const builds = Array.isArray(data?.builds) ? data.builds : [];
   if (limit === 'all') return builds;
   const n = typeof limit === 'number' ? limit : 50;
@@ -89,8 +100,9 @@ async function fetchRecentBuildsJson(limit = 50) {
 
 async function fetchFullLog(buildNumber) {
   // Fetch from /consoleText as plain text, with identity encoding
-  const url = `${buildJobPath()}/${buildNumber}/consoleText`;
-  const res = await getClient().get(url, {
+  const url = `${await buildJobPath()}/${buildNumber}/consoleText`;
+  const client = await getClient();
+  const res = await client.get(url, {
     responseType: 'text',
     transformResponse: [(d) => d],
     headers: { 'Accept': 'text/plain', 'Accept-Encoding': 'identity' },
@@ -106,8 +118,9 @@ async function fetchFullLog(buildNumber) {
 
 async function fetchStages(buildNumber) {
   try {
-    const url = `${buildJobPath()}/${buildNumber}/wfapi/describe`;
-    const { data } = await getClient().get(url);
+    const url = `${await buildJobPath()}/${buildNumber}/wfapi/describe`;
+    const client = await getClient();
+    const { data } = await client.get(url);
     const stages = (data.stages || []).map((s) => ({
       name: s.name,
       status: s.status === 'SUCCESS' ? 'SUCCESS' : s.status === 'FAILED' ? 'FAILED' : s.status,
@@ -159,11 +172,9 @@ function parseStagesFromLogs(logText) {
 }
 
 async function updateCacheOnce() {
-  if (!isLiveEnabled()) {
-    console.log('Jenkins env missing:', getEnvStatus());
-    throw new Error('Jenkins environment variables not fully configured');
-  }
-  console.log('Fetching Jenkins job:', getEnv().JENKINS_JOB);
+  // Validate DB-backed Jenkins config
+  const cfg = await getJenkinsConfig();
+  console.log('Fetching Jenkins job:', cfg.jobName);
   const latestJson = await fetchLatestBuildJson();
   const normalized = normalizeBuild(latestJson);
   if (normalized?.buildNumber != null) {
@@ -172,6 +183,12 @@ async function updateCacheOnce() {
   let logs = cache.logs;
   let stages = cache.stages;
   if (normalized && normalized.buildNumber !== cache.buildNumber) {
+    // New build detected → emit build:new event
+    if (io) {
+      try {
+        io.emit('build:new', { jobName: cfg.jobName || 'unknown-job', buildNumber: normalized.buildNumber });
+      } catch {}
+    }
     logs = await fetchFullLog(normalized.buildNumber);
     // Remove Jenkins console notes / transport artifacts
     logs = decodeJenkinsConsole(logs);
@@ -191,10 +208,10 @@ async function updateCacheOnce() {
       const statusNorm = normalized.status === 'FAILED' ? 'FAILURE' : normalized.status === 'SUCCESS' ? 'SUCCESS' : normalized.status;
       // Only save once job is complete (SUCCESS or FAILURE)
       if (statusNorm === 'SUCCESS' || statusNorm === 'FAILURE') {
-        const jobName = getEnv().JENKINS_JOB || 'unknown-job';
+        const jobName = cfg.jobName || 'unknown-job';
         const exists = await PipelineRawLog.findOne({ jobName, buildNumber: normalized.buildNumber }).lean();
         if (!exists) {
-          const consoleUrl = `${getEnv().JENKINS_URL}${buildJobPath()}/${normalized.buildNumber}/console`;
+          const consoleUrl = `${cfg.baseUrl}${await buildJobPath()}/${normalized.buildNumber}/console`;
           const rawDoc = await PipelineRawLog.create({
             jobName,
             buildNumber: normalized.buildNumber,
@@ -227,8 +244,14 @@ async function updateCacheOnce() {
 }
 
 let pollerStarted = false;
-function startPoller(intervalMs = 12000) {
-  if (!isLiveEnabled() || pollerStarted) return;
+async function startPoller(intervalMs = 30000) {
+  if (pollerStarted) return;
+  // Ensure Jenkins is configured in DB
+  try {
+    await getJenkinsConfig();
+  } catch {
+    return;
+  }
   pollerStarted = true;
   updateCacheOnce().catch(() => {});
   setInterval(() => {
@@ -236,18 +259,18 @@ function startPoller(intervalMs = 12000) {
   }, intervalMs);
 }
 
-export function initJenkinsPolling() {
-  startPoller();
+export function initJenkinsPolling(intervalMs = 30000) {
+  // Start background watcher that periodically checks Jenkins for latest build
+  // Default interval respects Jenkins load constraints (30s)
+  startPoller(intervalMs);
   // Also ensure any previously stored raw logs without AI analysis get processed
   ensureMissingAnalysesScheduled().catch(() => {});
   setInterval(() => ensureMissingAnalysesScheduled().catch(() => {}), 30000);
 }
 
 export async function getLatestCached() {
-  if (!isLiveEnabled()) {
-    console.error('Jenkins env missing:', getEnvStatus());
-    throw new Error('Jenkins environment variables not fully configured');
-  }
+  // Throws if Jenkins isn't configured in DB
+  await getJenkinsConfig();
   if (!cache.lastUpdated) await updateCacheOnce();
   return cache;
 }
@@ -255,40 +278,36 @@ export async function getLatestCached() {
 export const __testOnly = { normalizeBuild, fetchFullLog, fetchStages };
 
 export async function getRecentBuilds(limit = 50) {
-  if (!isLiveEnabled()) {
-    console.log('Jenkins env missing:', getEnvStatus());
-    throw new Error('Jenkins environment variables not fully configured');
-  }
+  const cfg = await getJenkinsConfig();
   const builds = await fetchRecentBuildsJson(limit);
+  const jobPath = await buildJobPath();
   return builds
     .map((b) => {
       const run = normalizeBuild(b);
       if (!run) return null;
       return {
         ...run,
-        jobName: getEnv().JENKINS_JOB || 'unknown-job',
-        consoleUrl: `${getEnv().JENKINS_URL}${buildJobPath()}/${b.number}/console`,
+        jobName: cfg.jobName || 'unknown-job',
+        consoleUrl: `${cfg.baseUrl}${jobPath}/${b.number}/console`,
       };
     })
     .filter(Boolean);
 }
 
 export async function getBuildDetails(buildNumber) {
-  if (!isLiveEnabled()) {
-    console.log('Jenkins env missing:', getEnvStatus());
-    throw new Error('Jenkins environment variables not fully configured');
-  }
-  console.log('Fetching Jenkins job:', getEnv().JENKINS_JOB);
+  const cfg = await getJenkinsConfig();
+  console.log('Fetching Jenkins job:', cfg.jobName);
   console.log('Build number:', buildNumber);
-  const url = `${buildJobPath()}/${buildNumber}/api/json`;
-  const { data } = await getClient().get(url);
+  const url = `${await buildJobPath()}/${buildNumber}/api/json`;
+  const client = await getClient();
+  const { data } = await client.get(url);
   const run = normalizeBuild(data);
   let logs = await fetchFullLog(buildNumber);
   logs = decodeJenkinsConsole(logs);
   const stages = await fetchStages(buildNumber);
   return {
     lastUpdated: new Date().toISOString(),
-    latest: { ...run, stages, consoleUrl: `${getEnv().JENKINS_URL}${buildJobPath()}/${buildNumber}/console` },
+    latest: { ...run, stages, consoleUrl: `${cfg.baseUrl}${await buildJobPath()}/${buildNumber}/console` },
     logs,
     stages,
   };

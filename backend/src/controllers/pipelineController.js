@@ -8,6 +8,7 @@ import {
   reanalyzeBuild,
 } from "../services/pipelineDataService.js";
 import { analyzeCleanedLogsStrict } from "../services/openaiService.js";
+import { cleanJenkinsLogs } from "../services/logSanitizer.js";
 
 export async function getLatestPipeline(req, res) {
   try {
@@ -123,9 +124,56 @@ export async function getFailureTimeline(req, res) {
 // Sample controller function: analyze Jenkins logs via OpenAI (backend-only)
 export async function analyzeJenkinsLogs(req, res) {
   try {
+    const io = req.app.get('io');
+    const buildNumber = Number(req.body?.buildNumber ?? req.body?.number ?? NaN);
     const logs = String(req.body?.logs || "");
     if (!logs) return res.status(400).json({ error: "Missing logs" });
-    const json = await analyzeCleanedLogsStrict(logs);
+
+    // Emit progress: starting logs fetch/prepare (controller-level analysis)
+    io?.emit('analysis:progress', {
+      buildNumber: Number.isNaN(buildNumber) ? null : buildNumber,
+      status: 'ANALYSIS_IN_PROGRESS',
+      stage: 'FETCHING_LOGS',
+      message: 'Preparing logs for analysis',
+    });
+
+    // Clean logs and emit filtering stage
+    const cleaned = cleanJenkinsLogs(logs);
+    io?.emit('analysis:progress', {
+      buildNumber: Number.isNaN(buildNumber) ? null : buildNumber,
+      status: 'ANALYSIS_IN_PROGRESS',
+      stage: 'FILTERING_ERRORS',
+      message: 'Cleaning logs and filtering noisy entries',
+    });
+
+    // Before AI call
+    io?.emit('analysis:progress', {
+      buildNumber: Number.isNaN(buildNumber) ? null : buildNumber,
+      status: 'ANALYSIS_IN_PROGRESS',
+      stage: 'AI_ANALYZING',
+      message: 'Submitting cleaned logs to AI',
+    });
+
+    const json = await analyzeCleanedLogsStrict(cleaned);
+
+    // Before storing (this controller does not persist; emit stage for UI completeness)
+    io?.emit('analysis:progress', {
+      buildNumber: Number.isNaN(buildNumber) ? null : buildNumber,
+      status: 'ANALYSIS_IN_PROGRESS',
+      stage: 'STORING_RESULTS',
+      message: 'Preparing final analysis result',
+    });
+
+    // Final completion event
+    io?.emit('analysis:complete', {
+      buildNumber: Number.isNaN(buildNumber) ? null : buildNumber,
+      status: 'READY',
+      humanSummary: json?.humanSummary ?? null,
+      suggestedFix: json?.suggestedFix ?? null,
+      technicalRecommendation: json?.technicalRecommendation ?? null,
+      confidenceScore: typeof json?.confidenceScore === 'number' ? json.confidenceScore : null,
+    });
+
     return res.json(json);
   } catch (e) {
     console.error("OpenAI analysis failed:", e?.message || e);
@@ -139,7 +187,9 @@ export async function reanalyzePipelineBuild(req, res) {
     return res.status(400).json({ error: "Invalid build number" });
   }
   try {
-    const analysis = await reanalyzeBuild(Number(number));
+    // Emit real-time progress via Socket.IO during analysis
+    const io = req.app.get('io');
+    const analysis = await reanalyzeBuild(Number(number), { io });
     if (!analysis) return res.status(404).json({ error: "Build not found" });
     return res.json(analysis);
   } catch (e) {

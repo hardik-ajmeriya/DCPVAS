@@ -99,12 +99,36 @@ export async function analyzeCleanedLogsStrict(inputLogs) {
   };
 }
 
-export async function storeAIAnalysisForRawLog(rawDoc) {
+// Store AI analysis for a raw Jenkins log and optionally emit socket progress events.
+// options: { io?: SocketIOServer, room?: string }
+export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   const { model } = getConfig();
   if (!rawDoc) throw new Error('rawDoc is required');
+  const { io, room } = options || {};
+  const emitProgress = (stage, message) => {
+    if (io)
+      io.to(room || '').emit('analysis:progress', {
+        buildNumber: rawDoc.buildNumber,
+        status: 'ANALYSIS_IN_PROGRESS',
+        stage,
+        message,
+      });
+  };
+  const emitComplete = (analysis) => {
+    if (io)
+      io.to(room || '').emit('analysis:complete', {
+        buildNumber: rawDoc.buildNumber,
+        status: 'READY',
+        humanSummary: analysis?.humanSummary ?? null,
+        suggestedFix: analysis?.suggestedFix ?? null,
+        technicalRecommendation: analysis?.technicalRecommendation ?? null,
+        confidenceScore: typeof analysis?.confidenceScore === 'number' ? analysis.confidenceScore : null,
+      });
+  };
 
   // Upsert initial analysis document with IN_PROGRESS and FETCHING_LOGS
   console.log(`[AI] Step → FETCHING_LOGS (build #${rawDoc.buildNumber})`);
+  emitProgress('FETCHING_LOGS', 'Starting to fetch and prepare logs');
   let aiDoc = await PipelineAIAnalysis.findOneAndUpdate(
     { rawLogRef: rawDoc._id, jobName: rawDoc.jobName, buildNumber: rawDoc.buildNumber },
     {
@@ -131,12 +155,14 @@ export async function storeAIAnalysisForRawLog(rawDoc) {
 
   // CLEANING_LOGS
   console.log('[AI] Step → CLEANING_LOGS');
+  emitProgress('FILTERING_ERRORS', 'Cleaning logs and filtering errors');
   aiDoc.analysisStep = 'CLEANING_LOGS';
   await aiDoc.save();
   const cleaned = cleanJenkinsLogs(rawDoc.rawLogs || '');
 
   // CALLING_OPENAI
   console.log('[AI] Step → CALLING_OPENAI');
+  emitProgress('AI_ANALYZING', 'Calling AI model for analysis');
   aiDoc.analysisStep = 'CALLING_OPENAI';
   await aiDoc.save();
   let json;
@@ -151,6 +177,7 @@ export async function storeAIAnalysisForRawLog(rawDoc) {
 
   // SAVING_RESULT
   console.log('[AI] Step → SAVING_RESULT');
+  emitProgress('STORING_RESULTS', 'Storing analysis results in database');
   aiDoc.analysisStep = 'SAVING_RESULT';
   aiDoc.failedStage = json.failedStage ?? null;
   aiDoc.detectedError = json.detectedError ?? null;
@@ -165,6 +192,8 @@ export async function storeAIAnalysisForRawLog(rawDoc) {
   aiDoc.analysisStatus = 'READY';
   aiDoc.analysisStep = 'READY';
   await aiDoc.save();
+  emitProgress('COMPLETED', 'Analysis completed');
+  emitComplete(aiDoc.toObject());
   return aiDoc.toObject();
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import { getLatestPipeline } from '../services/api.js';
+import { subscribeAnalysis } from '../services/socket.js';
 
 export default function Dashboard({ mode }) {
   const [latest, setLatest] = useState(null);
@@ -23,22 +24,51 @@ export default function Dashboard({ mode }) {
     }
 
     load();
-    // Initial load only; polling handled in another effect
+    // Initial load only; real-time updates via Socket.IO below
   }, []);
-  // Poll every 3s while analysis is in progress; stop when ready
+  // Real-time updates via Socket.IO (no polling)
   useEffect(() => {
-    if (!latest || latest.analysisStatus !== 'ANALYSIS_IN_PROGRESS') return;
-    const t = setInterval(async () => {
-      try {
-        const data = await getLatestPipeline();
-        setLatest(data);
-        if (data.analysisStatus === 'READY') {
-          clearInterval(t);
-        }
-      } catch {}
-    }, 3000);
-    return () => clearInterval(t);
-  }, [latest?.analysisStatus]);
+    // Handlers for progress and completion events
+    const unsubscribe = subscribeAnalysis({
+      onProgress: (payload) => {
+        // payload: { buildNumber, status, stage, message }
+        setLatest((prev) => {
+          // Update only if build number matches or if no previous data
+          if (!prev || prev.buildNumber === payload.buildNumber || prev.analysisStatus === 'ANALYSIS_IN_PROGRESS') {
+            return {
+              ...(prev || {}),
+              buildNumber: payload.buildNumber ?? prev?.buildNumber ?? null,
+              status: prev?.status || 'UNKNOWN',
+              analysisStatus: payload.status,
+              analysisStep: payload.stage,
+            };
+          }
+          return prev;
+        });
+      },
+      onComplete: (payload) => {
+        // payload: { buildNumber, status: 'READY', humanSummary, suggestedFix, technicalRecommendation, confidenceScore }
+        setLatest((prev) => {
+          if (!prev || prev.buildNumber === payload.buildNumber) {
+            return {
+              ...(prev || {}),
+              buildNumber: payload.buildNumber ?? prev?.buildNumber ?? null,
+              analysisStatus: payload.status || 'READY',
+              analysisStep: 'READY',
+              humanSummary: payload.humanSummary ?? prev?.humanSummary ?? null,
+              suggestedFix: payload.suggestedFix ?? prev?.suggestedFix ?? null,
+              technicalRecommendation: payload.technicalRecommendation ?? prev?.technicalRecommendation ?? null,
+              confidenceScore: typeof payload.confidenceScore === 'number' ? payload.confidenceScore : (prev?.confidenceScore ?? null),
+            };
+          }
+          return prev;
+        });
+      },
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   const lastUpdatedLabel = useMemo(() => {
     if (!latest?.executedAt) return null;
