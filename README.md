@@ -35,18 +35,35 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
    - humanSummary, suggestedFix, technicalRecommendation
    - failedStage, detectedError (e.g., UNIT_TEST_FAILURE on AssertionError)
 - Tabs: Dashboard, Pipelines, Execution History, AI Insights, Settings.
+ - Real-time UI updates via Socket.IO (progress + completion) without polling.
+ - User-configurable Jenkins integration via Settings (no hardcoded jobs).
+ - Secure storage of Jenkins URL, job name, username, and API token (encrypted).
 
 ## Backend APIs
 - GET /api/pipeline/latest — Latest Jenkins build + AI analysis.
 - GET /api/pipeline/history?limit=all|N — Recent builds.
-- GET /api/pipeline/logs — Cleaned console logs + tail lines.
+- GET /api/pipeline/logs/:number — Cleaned console logs for a build.
 - GET /api/pipeline/stages — Stages via wfapi or log-derived.
 - GET /api/pipeline/build/:number — Specific build details + AI analysis.
 - GET /api/pipeline/failures — Failure Intelligence Timeline.
+- POST /api/pipeline/reanalyze/:number — Re-run AI analysis (emits Socket.IO progress).
+- POST /api/pipeline/ai/analyze — Analyze pasted logs (emits Socket.IO progress).
 - GET /api/health/openai — Env verification: `{ openaiKeyLoaded, model }`.
 - GET /api/test/openai-text — Basic connectivity test (Responses API).
 - GET /api/test/openai-json — Structured JSON test (Responses API).
 - POST /api/test/analyze-log — Analyze pasted Jenkins logs; returns strict JSON.
+
+### Settings APIs (Jenkins)
+- POST /api/settings/jenkins — Save Jenkins settings `{ jenkinsUrl, jobName, username, apiToken }`.
+- GET /api/settings/jenkins — Fetch saved settings (token omitted).
+- POST /api/settings/jenkins/test — Verify connectivity using saved credentials.
+
+## Jenkins Settings (Dynamic Configuration)
+- Jenkins connection details are provided via a dedicated Settings module rather than hardcoded values.
+- The backend validates connectivity using the Jenkins Remote Access API.
+- Credentials are encrypted and stored in MongoDB, then decrypted server-side when needed.
+- All pipeline APIs dynamically use the saved configuration (`jenkins_settings`).
+- The frontend never connects to Jenkins directly; all access is mediated by the backend.
 ## Analysis Approach
 - Strict, log-driven signals (e.g., AssertionError → UNIT_TEST_FAILURE).
 - Backend-only OpenAI analysis using Responses API (model: gpt-5-mini).
@@ -55,10 +72,15 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
 
 ## How Data Flows (Live Mode)
 1. Jenkins runs pipelines (this app never triggers builds).
-2. Backend `jenkinsService` polls Jenkins Remote API using Basic Auth (user + token).
-3. Console logs and build metadata are cached in memory for near real-time updates.
+2. Backend `jenkinsService` loads Jenkins configuration from MongoDB (`jenkins_settings`), decrypts credentials server-side, then polls Jenkins Remote Access API.
+3. Latest build and logs are cached; new builds trigger `build:new` Socket.IO events.
 4. Logs are sanitized server-side; OpenAI analysis runs strictly on provided text.
-5. Frontend polls backend endpoints and renders dashboards and timelines.
+5. Frontend uses Socket.IO to render progress in real time; REST remains for initial data.
+
+## Why Settings-Based Jenkins Integration
+- Scalability: change Jenkins URL/job/token without code changes or redeploys.
+- Reusability: consistent configuration across environments and teams.
+- DevOps relevance: separates secrets from application code, enables rotation and auditing.
 
 ## Disclaimers
 - AI analysis is grounded in logs but should be reviewed; treat as guidance.
@@ -71,16 +93,19 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
    - Frontend: `npm install` in `frontend/`
 2. Configure environment:
    - Copy `backend/.env.example` → `backend/.env`
-   - Set Jenkins: `JENKINS_URL`, `JENKINS_JOB`, `JENKINS_USER`, `JENKINS_TOKEN`
+   - Encryption: `SECRET_KEY` (used to encrypt Jenkins API token)
    - Set OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5-mini`
    - MongoDB: `MONGODB_URI=mongodb://127.0.0.1:27017/dcpvas`
+   - Frontend (optional): `VITE_API_BASE_URL=http://localhost:4000/api`, `VITE_SOCKET_URL=http://localhost:4000`
 3. Run servers:
    - Backend: `npm run dev` in `backend/` (default port 4000)
    - Frontend: `npm run dev` in `frontend/` (port 5173)
-4. Frontend polls the backend at http://localhost:4000/api.
+4. Save Jenkins settings via POST `/api/settings/jenkins`.
+5. Frontend connects to Socket.IO for real-time analysis events.
 
 ## Configuration
 - See `backend/.env.example` for environment variables (Jenkins, OpenAI, MongoDB).
+ - Jenkins credentials are stored in MongoDB (`jenkins_settings`) encrypted via `SECRET_KEY` and loaded server-side.
 
 ## Project Structure
 See the repository for the mandated monorepo structure under `dcpvas/` with `backend/` and `frontend/` folders.
@@ -91,3 +116,11 @@ See the repository for the mandated monorepo structure under `dcpvas/` with `bac
 3. Structured JSON: `GET /api/test/openai-json` → `{ humanSummary, suggestedFix, technicalRecommendation }`
 4. Real Log Analysis: `POST /api/test/analyze-log` with body `{ log: "<console log>" }` →
    `{ humanSummary, suggestedFix, technicalRecommendation, failedStage, detectedError }`
+
+## Real-Time Events (Socket.IO)
+- `analysis:progress` — `{ buildNumber, status: 'ANALYSIS_IN_PROGRESS', stage, message }`
+   - Stages: `FETCHING_LOGS` → `FILTERING_ERRORS` → `AI_ANALYZING` → `STORING_RESULTS` → `COMPLETED`
+- `analysis:complete` — `{ buildNumber, status: 'READY', humanSummary, suggestedFix, technicalRecommendation, confidenceScore }`
+- `build:new` — `{ jobName, buildNumber }`
+
+Frontend subscribes using `socket.io-client` (see `frontend/src/services/socket.js`).
