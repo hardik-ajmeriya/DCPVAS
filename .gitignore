@@ -4,7 +4,10 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 .pnpm-store/
+lerna-debug.log*
+*.tgz
 
 # IDE/editor
 .vscode/
@@ -14,20 +17,30 @@ yarn-error.log*
 # OS junk
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Env
 .env
 *.env*
 backend/.env
 frontend/.env
+.envrc
 
 # Build outputs
 backend/dist/
 frontend/dist/
+dist/
+backend/build/
+frontend/build/
+.next/
+.turbo/
+.parcel-cache/
 
 # Coverage / cache
 coverage/
+/.nyc_output/
 *.pid
+*.pid.lock
 .eslintcache
 .cache/
 tmp/

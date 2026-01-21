@@ -5,30 +5,71 @@ const tabs = ['Human Summary', 'Suggested Fix', 'Technical Recommendation', 'Raw
 
 function ProgressBar({ step }) {
   const percent = mapStepToPercent(step);
+  const label = mapStepToLabel(step);
   return (
     <div className="mt-3">
       <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
-        <div className="bg-blue-600 h-2" style={{ width: `${percent}%` }} />
+        <div
+          className="bg-blue-600 h-2"
+          style={{ width: `${percent}%`, transition: 'width 0.5s ease' }}
+        />
       </div>
-      <div className="text-xs text-gray-600 mt-1">{percent}%</div>
+      <div className="text-xs text-gray-600 mt-1 flex items-center justify-between">
+        <span>{label}</span>
+        <span>{percent}%</span>
+      </div>
     </div>
   );
 }
 
 function mapStepToPercent(step) {
   switch (step) {
+    // New Socket.IO stages → percentage mapping
     case 'FETCHING_LOGS':
-      return 20;
+      return 10;
+    case 'FILTERING_ERRORS':
+      return 30;
+    case 'AI_ANALYZING':
+      return 60;
+    case 'STORING_RESULTS':
+      return 85;
+    case 'COMPLETED':
+      return 100;
+    // Legacy internal step names fallback
     case 'CLEANING_LOGS':
-      return 40;
+      return 30;
     case 'CALLING_OPENAI':
-      return 70;
+      return 60;
     case 'SAVING_RESULT':
-      return 90;
+      return 85;
     case 'READY':
       return 100;
     default:
       return 10;
+  }
+}
+
+function mapStepToLabel(step) {
+  switch (step) {
+    case 'FETCHING_LOGS':
+      return 'Fetching logs';
+    case 'FILTERING_ERRORS':
+      return 'Filtering errors';
+    case 'AI_ANALYZING':
+      return 'AI analyzing';
+    case 'STORING_RESULTS':
+      return 'Storing results';
+    case 'COMPLETED':
+    case 'READY':
+      return 'Completed';
+    case 'CLEANING_LOGS':
+      return 'Cleaning logs';
+    case 'CALLING_OPENAI':
+      return 'Calling AI';
+    case 'SAVING_RESULT':
+      return 'Saving result';
+    default:
+      return 'Preparing';
   }
 }
 
@@ -39,6 +80,12 @@ export default function FailureAnalysis({ run }) {
   const buildNumber = run?.buildNumber || analysis?.buildNumber;
   const status = run?.analysisStatus || analysis?.analysisStatus;
   const step = run?.analysisStep || analysis?.analysisStep;
+  // Auto-switch to Human Summary when analysis completes
+  useEffect(() => {
+    if (status === 'READY' || step === 'COMPLETED') {
+      setTab('Human Summary');
+    }
+  }, [status, step]);
 
   useEffect(() => {
     // reset logs when run changes
@@ -66,7 +113,7 @@ export default function FailureAnalysis({ run }) {
           <h3 className="font-semibold">Human Summary</h3>
           {status === 'ANALYSIS_IN_PROGRESS' || analysis.humanSummary == null ? (
             <div>
-              <p className="text-sm text-gray-600">Analyzing logs… please wait{step ? ` (${step})` : ''}</p>
+              <p className="text-sm text-gray-600">Analyzing logs… please wait</p>
               <ProgressBar step={step} />
             </div>
           ) : (
@@ -116,7 +163,7 @@ export default function FailureAnalysis({ run }) {
           <h3 className="font-semibold">Suggested Fix</h3>
           {status === 'ANALYSIS_IN_PROGRESS' || analysis.suggestedFix == null ? (
             <div>
-              <p className="text-sm text-gray-600">Analyzing logs… please wait{step ? ` (${step})` : ''}</p>
+              <p className="text-sm text-gray-600">Analyzing logs… please wait</p>
               <ProgressBar step={step} />
             </div>
           ) : (
@@ -161,7 +208,7 @@ export default function FailureAnalysis({ run }) {
           <h3 className="font-semibold">Technical Recommendation</h3>
           {status === 'ANALYSIS_IN_PROGRESS' || analysis.technicalRecommendation == null ? (
             <div>
-              <p className="text-sm text-gray-600">Analyzing logs… please wait{step ? ` (${step})` : ''}</p>
+              <p className="text-sm text-gray-600">Analyzing logs… please wait</p>
               <ProgressBar step={step} />
             </div>
           ) : (
