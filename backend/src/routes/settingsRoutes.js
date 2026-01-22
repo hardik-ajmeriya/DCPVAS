@@ -3,7 +3,7 @@ import {
   getJenkinsSettings,
   saveJenkinsSettings,
   testJenkinsConnection,
-} from "../controllers/jenkinsSettingsController.js";
+} from "../controllers/settingsController.js";
 
 const router = express.Router();
 

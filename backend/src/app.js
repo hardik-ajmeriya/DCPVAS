@@ -15,6 +15,7 @@ app.use("/api/pipeline", pipelineRoutes);
 app.use("/api/executions", executionRoutes);
 app.use("/api", openaiRoutes);
 app.use("/api/settings", settingsRoutes);
+console.log('✅ Settings routes mounted at /api/settings');
 
 // Friendly API root to avoid default 404 on /api
 app.get("/api", (req, res) => {

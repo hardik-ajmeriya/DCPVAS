@@ -6,6 +6,12 @@ const api = axios.create({
   baseURL: apiBase,
 });
 
+export async function getJenkinsSettings() {
+  const { data } = await api.get('/settings/jenkins');
+  // Expected shape: { jenkinsUrl, jobName, username, isConnected, lastVerifiedAt }
+  return data || {};
+}
+
 export async function getLatestPipeline() {
   const { data } = await api.get('/pipeline/latest');
   return data; // { jobName, buildNumber, status, stages, executedAt, consoleUrl, analysis }
@@ -47,4 +53,4 @@ export async function getExecution(id) {
   return data;
 }
 
-export default { getLatestPipeline, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs };
+export default { getJenkinsSettings, getLatestPipeline, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs };

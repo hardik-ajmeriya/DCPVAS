@@ -6,6 +6,8 @@ const JenkinsSettingsSchema = new mongoose.Schema(
     jobName: { type: String, required: true, trim: true },
     username: { type: String, required: true, trim: true },
     apiToken: { type: String, required: true }, // encrypted
+    isConnected: { type: Boolean, default: false },
+    lastVerifiedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
