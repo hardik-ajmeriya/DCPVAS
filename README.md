@@ -39,6 +39,11 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
  - User-configurable Jenkins integration via Settings (no hardcoded jobs).
  - Secure storage of Jenkins URL, job name, username, and API token (encrypted).
 
+### Jenkins Integration (Save & Connect)
+- Dynamic Jenkins pipeline configuration via Settings (Save & Connect).
+- Backend-verified Jenkins connectivity before enabling pipeline views.
+- Visual connection status in Navbar (green badge with job name).
+
 ## Backend APIs
 - GET /api/pipeline/latest — Latest Jenkins build + AI analysis.
 - GET /api/pipeline/history?limit=all|N — Recent builds.
@@ -64,6 +69,18 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
 - Credentials are encrypted and stored in MongoDB, then decrypted server-side when needed.
 - All pipeline APIs dynamically use the saved configuration (`jenkins_settings`).
 - The frontend never connects to Jenkins directly; all access is mediated by the backend.
+
+## Jenkins Test Pipeline (Validation)
+- A controlled Jenkins Pipeline script is used to generate real CI/CD failures.
+- Pipeline includes stages: Checkout, Build, Unit Test, Docker Build, Deploy.
+- Unit Test stage intentionally fails using an AssertionError.
+- Downstream stages are skipped to mimic real production behavior.
+- Logs are consumed by backend and analyzed by AI.
+
+```groovy
+// Defined directly in Jenkins (scripted pipeline)
+// Purpose: test AI log analysis and execution history
+```
 ## Analysis Approach
 - Strict, log-driven signals (e.g., AssertionError → UNIT_TEST_FAILURE).
 - Backend-only OpenAI analysis using Responses API (model: gpt-5-mini).
@@ -71,6 +88,7 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
 
 
 ## How Data Flows (Live Mode)
+Jenkins connectivity is validated via the Settings module before any pipeline data is fetched.
 1. Jenkins runs pipelines (this app never triggers builds).
 2. Backend `jenkinsService` loads Jenkins configuration from MongoDB (`jenkins_settings`), decrypts credentials server-side, then polls Jenkins Remote Access API.
 3. Latest build and logs are cached; new builds trigger `build:new` Socket.IO events.
@@ -116,6 +134,9 @@ See the repository for the mandated monorepo structure under `dcpvas/` with `bac
 3. Structured JSON: `GET /api/test/openai-json` → `{ humanSummary, suggestedFix, technicalRecommendation }`
 4. Real Log Analysis: `POST /api/test/analyze-log` with body `{ log: "<console log>" }` →
    `{ humanSummary, suggestedFix, technicalRecommendation, failedStage, detectedError }`
+
+- Jenkins test pipeline can be triggered manually from Jenkins UI.
+- DCPVAS reflects new builds automatically after successful connection.
 
 ## Real-Time Events (Socket.IO)
 - `analysis:progress` — `{ buildNumber, status: 'ANALYSIS_IN_PROGRESS', stage, message }`
