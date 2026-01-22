@@ -15,10 +15,13 @@ export async function saveJenkinsSettings(req, res) {
     const settings = await JenkinsSettings.findOneAndUpdate(
       {},
       {
-        jenkinsUrl,
-        jobName,
-        username,
-        apiToken: encryptToken,
+        $set: {
+          jenkinsUrl,
+          jobName,
+          username,
+          apiToken: encryptToken,
+        },
+        // Do not forcibly set isConnected here; let test endpoint update it
       },
       { upsert: true, new: true },
     );
@@ -36,7 +39,8 @@ export async function getJenkinsSettings(req, res) {
     if (!settings) {
       return res.status(400).json({ message: "Jenkins not configured" });
     }
-    return res.json(settings);
+    const { jenkinsUrl, jobName, username, isConnected, lastVerifiedAt } = settings;
+    return res.json({ jenkinsUrl, jobName, username, isConnected, lastVerifiedAt });
   } catch (err) {
     return res.status(500).json({ message: "Failed to fetch Jenkins settings" });
   }
@@ -57,13 +61,34 @@ export async function testJenkinsConnection(req, res) {
     };
 
     await axios.get(`${settings.jenkinsUrl}/api/json`, { auth });
-    await axios.get(`${settings.jenkinsUrl}/job/${settings.jobName}/api/json`, {
-      auth,
-    });
+    await axios.get(`${settings.jenkinsUrl}/job/${settings.jobName}/api/json`, { auth });
 
-    return res.json({ status: "SUCCESS", message: "Jenkins connection verified" });
+    const verifiedAt = new Date();
+    const updated = await JenkinsSettings.findOneAndUpdate(
+      {},
+      { $set: { isConnected: true, lastVerifiedAt: verifiedAt } },
+      { new: true }
+    ).select("-apiToken");
+
+    return res.json({
+      status: "SUCCESS",
+      message: "Jenkins connection verified",
+      isConnected: true,
+      lastVerifiedAt: verifiedAt,
+      jobName: updated?.jobName,
+    });
   } catch (err) {
     const msg = err?.message || "Connection failed";
-    return res.status(500).json({ status: "FAILED", message: msg });
+    // Mark as disconnected; keep lastVerifiedAt as now to reflect attempted verification
+    const verifiedAt = new Date();
+    await JenkinsSettings.findOneAndUpdate(
+      {},
+      { $set: { isConnected: false, lastVerifiedAt: verifiedAt } },
+      { new: true }
+    );
+    // Map Jenkins 404 (e.g., wrong job) to 400 (client error/misconfig)
+    const statusCode = err?.response?.status;
+    const code = statusCode === 404 ? 400 : 500;
+    return res.status(code).json({ status: "FAILED", message: msg, isConnected: false, lastVerifiedAt: verifiedAt });
   }
 }
