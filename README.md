@@ -28,18 +28,20 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
 - Live Only: Uses Jenkins Remote API (read-only) via backend polling. Frontend never calls Jenkins directly.
 
 ## Features
-- Live Jenkins monitoring via backend polling (Basic Auth, read-only).
-- Cleaned console logs (ANSI/control sequences removed) for clarity.
-- Failure Intelligence Timeline focused on developer decision-making.
-- Failure Analysis per build:
+- Reliable Jenkins Raw Logs Rendering for both SUCCESS and FAILED builds
+- Correct handling of pipeline compilation (Jenkinsfile parsing) failures
+- Logs are always fetched from Jenkins consoleText API
+- Logs are decoupled from AI analysis logic
    - humanSummary, suggestedFix, technicalRecommendation
    - failedStage, detectedError (e.g., UNIT_TEST_FAILURE on AssertionError)
-- Tabs: Dashboard, Pipelines, Execution History, AI Insights, Settings.
  - Real-time UI updates via Socket.IO (progress + completion) without polling.
  - User-configurable Jenkins integration via Settings (no hardcoded jobs).
  - Secure storage of Jenkins URL, job name, username, and API token (encrypted).
 
 ### Jenkins Integration (Save & Connect)
+- Raw logs are fetched and stored for all builds (success and failure) and returned unfiltered via APIs.
+- Successful builds explicitly skip AI and set `{ aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' } }`.
+- For compilation/Jenkinsfile parse failures (no runtime console output), a clear placeholder message is returned instead of an empty log.
 - Dynamic Jenkins pipeline configuration via Settings (Save & Connect).
 - Backend-verified Jenkins connectivity before enabling pipeline views.
 - Visual connection status in Navbar (green badge with job name).
@@ -47,7 +49,7 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
 ## Backend APIs
 - GET /api/pipeline/latest — Latest Jenkins build + AI analysis.
 - GET /api/pipeline/history?limit=all|N — Recent builds.
-- GET /api/pipeline/logs/:number — Cleaned console logs for a build.
+- GET /api/pipeline/logs/:number — Raw Jenkins console logs for a build.
 - GET /api/pipeline/stages — Stages via wfapi or log-derived.
 - GET /api/pipeline/build/:number — Specific build details + AI analysis.
 - GET /api/pipeline/failures — Failure Intelligence Timeline.
@@ -91,9 +93,19 @@ DCPVAS is a MERN application that visualizes Jenkins CI/CD pipelines and produce
 Jenkins connectivity is validated via the Settings module before any pipeline data is fetched.
 1. Jenkins runs pipelines (this app never triggers builds).
 2. Backend `jenkinsService` loads Jenkins configuration from MongoDB (`jenkins_settings`), decrypts credentials server-side, then polls Jenkins Remote Access API.
-3. Latest build and logs are cached; new builds trigger `build:new` Socket.IO events.
-4. Logs are sanitized server-side; OpenAI analysis runs strictly on provided text.
-5. Frontend uses Socket.IO to render progress in real time; REST remains for initial data.
+3. Latest build and raw logs are cached; new builds trigger `build:new` and, on success, `build:success` events.
+4. Logs are sanitized only for AI; analysis runs strictly on provided text and only for failed builds.
+5. Frontend uses Socket.IO to render progress in real time; REST is used for initial and refresh fetches.
+
+- Logs are fetched asynchronously from Jenkins.
+- Frontend uses explicit loading states to avoid blank log views.
+- Logs automatically appear once API response resolves (no manual refresh required).
+
+## Log Rendering & UX Stability Improvements
+- Initial blank logs issue was caused by an async rendering race condition between run data and logs fetch.
+- Fixed by introducing explicit loading states and deriving log lines reactively in the frontend.
+- Users now see “Fetching logs…” instead of an empty UI while logs load.
+- Behavior aligns with established DevOps tools (e.g., Jenkins, GitHub Actions).
 
 ## Why Settings-Based Jenkins Integration
 - Scalability: change Jenkins URL/job/token without code changes or redeploys.
@@ -104,6 +116,7 @@ Jenkins connectivity is validated via the Settings module before any pipeline da
 - AI analysis is grounded in logs but should be reviewed; treat as guidance.
 - Credentials are stored only in backend environment variables; never exposed to the frontend.
 - Jenkins executes pipelines; DCPVAS reads and analyzes output.
+- Certain Jenkins failures (e.g., Jenkinsfile parsing/validation errors) may not produce runtime console logs; the UI displays an explanatory message instead of empty logs in these cases.
 
 ## Getting Started
 1. Install dependencies:
@@ -118,8 +131,8 @@ Jenkins connectivity is validated via the Settings module before any pipeline da
 3. Run servers:
    - Backend: `npm run dev` in `backend/` (default port 4000)
    - Frontend: `npm run dev` in `frontend/` (port 5173)
-4. Save Jenkins settings via POST `/api/settings/jenkins`.
-5. Frontend connects to Socket.IO for real-time analysis events.
+4. In the frontend UI, open Settings → Save & Connect with your Jenkins URL, job name, username, and API token (or POST `/api/settings/jenkins`).
+5. Frontend connects to Socket.IO for real-time build/analysis events; Dashboard and Build Details auto-refresh.
 
 ## Configuration
 - See `backend/.env.example` for environment variables (Jenkins, OpenAI, MongoDB).
@@ -143,5 +156,6 @@ See the repository for the mandated monorepo structure under `dcpvas/` with `bac
    - Stages: `FETCHING_LOGS` → `FILTERING_ERRORS` → `AI_ANALYZING` → `STORING_RESULTS` → `COMPLETED`
 - `analysis:complete` — `{ buildNumber, status: 'READY', humanSummary, suggestedFix, technicalRecommendation, confidenceScore }`
 - `build:new` — `{ jobName, buildNumber }`
+ - `build:success` — `{ buildNumber }`
 
 Frontend subscribes using `socket.io-client` (see `frontend/src/services/socket.js`).
