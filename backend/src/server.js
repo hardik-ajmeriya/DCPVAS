@@ -59,8 +59,8 @@ server.listen(port, () => {
     hasUser: !!process.env.JENKINS_USER,
     hasToken: !!process.env.JENKINS_TOKEN,
   });
-  // Start Live Jenkins polling / background watcher (30s default)
-  initJenkinsPolling(30000);
+  // Start Live Jenkins polling / background watcher (10s interval)
+  initJenkinsPolling(10000);
   // Attempt initial DB connection
   connectWithRetry();
 });

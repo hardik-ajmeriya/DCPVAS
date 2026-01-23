@@ -9,22 +9,43 @@ import {
 } from "../services/pipelineDataService.js";
 import { analyzeCleanedLogsStrict } from "../services/openaiService.js";
 import { cleanJenkinsLogs } from "../services/logSanitizer.js";
+import { decodeJenkinsConsole } from "../services/logDecoder.js";
 
 export async function getLatestPipeline(req, res) {
   try {
     const combined = await getLatestWithAnalysis();
     if (!combined) return res.status(404).json({ error: "No builds found" });
     const { raw, ai } = combined;
+    const isSuccess = raw.status === 'SUCCESS';
     const ready = !!ai && ai.analysisStatus === 'READY';
-    return res.json({
+    const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
+    const isCompilationFailure = raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
+    const placeholder = 'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
+    const base = {
       jobName: raw.jobName,
       buildNumber: raw.buildNumber,
       status: raw.status,
-      failedStage: ready ? (ai.failedStage ?? null) : null,
-      humanSummary: ready ? (ai.humanSummary ?? null) : null,
-      suggestedFix: ready ? (ai.suggestedFix ?? null) : null,
-      technicalRecommendation: ready ? (ai.technicalRecommendation ?? null) : null,
-      confidenceScore: ready && typeof ai.confidenceScore === 'number' ? ai.confidenceScore : null,
+      // Provide logs; if none and compilation failed pre-execution, return placeholder
+      logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
+    };
+    if (isSuccess) {
+      console.log('STATUS', raw.status);
+      console.log('LOG LENGTH BEFORE RESPONSE (latest, SUCCESS):', base.logs?.length);
+      return res.json({
+        ...base,
+        aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
+      });
+    }
+    // Failure build → return full AI analysis fields when available
+    console.log('STATUS', raw.status);
+    console.log('RAW_LOG_LENGTH', base.logs?.length);
+    return res.json({
+      ...base,
+      failedStage: ready ? (ai?.failedStage ?? null) : null,
+      humanSummary: ready ? (ai?.humanSummary ?? null) : null,
+      suggestedFix: ready ? (ai?.suggestedFix ?? null) : null,
+      technicalRecommendation: ready ? (ai?.technicalRecommendation ?? null) : null,
+      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : null,
       analysisStatus: ai?.analysisStatus || 'ANALYSIS_IN_PROGRESS',
       analysisStep: ai?.analysisStep || 'FETCHING_LOGS',
     });
@@ -81,14 +102,42 @@ export async function getPipelineBuild(req, res) {
     const combined = await getBuildWithAnalysis(Number(number));
     if (!combined) return res.status(404).json({ error: "Build not found" });
     const { raw, ai } = combined;
-    return res.json({
+    const isSuccess = raw.status === 'SUCCESS';
+    const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
+    const isCompilationFailure = raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
+    const placeholder = 'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
+    const base = {
       jobName: raw.jobName,
       buildNumber: raw.buildNumber,
       status: raw.status,
       stages: raw.stages,
       executedAt: raw.executedAt,
       consoleUrl: raw.consoleUrl,
-      analysis: ai || null,
+      // Provide logs; if none and compilation failed pre-execution, return placeholder
+      logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
+    };
+    if (isSuccess) {
+      console.log('STATUS', raw.status);
+      console.log('LOG LENGTH BEFORE RESPONSE (build, SUCCESS):', base.logs?.length);
+      return res.json({
+        ...base,
+        aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
+      });
+    }
+    // Failure build → include AI outputs when available
+    const ready = !!ai && ai.analysisStatus === 'READY';
+    console.log('STATUS', raw.status);
+    console.log('RAW_LOG_LENGTH', base.logs?.length);
+    return res.json({
+      ...base,
+      humanSummary: ready ? (ai?.humanSummary ?? null) : null,
+      suggestedFix: ready ? (ai?.suggestedFix ?? null) : null,
+      technicalRecommendation: ready ? (ai?.technicalRecommendation ?? null) : null,
+      failedStage: ready ? (ai?.failedStage ?? null) : null,
+      detectedError: ready ? (ai?.detectedError ?? null) : null,
+      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : null,
+      analysisStatus: ai?.analysisStatus || 'ANALYSIS_IN_PROGRESS',
+      analysisStep: ai?.analysisStep || 'FETCHING_LOGS',
     });
   } catch (e) {
     return res.status(502).json({ error: "Failed to fetch build" });
@@ -189,8 +238,15 @@ export async function reanalyzePipelineBuild(req, res) {
   try {
     // Emit real-time progress via Socket.IO during analysis
     const io = req.app.get('io');
+    const combined = await getBuildWithAnalysis(Number(number));
+    if (!combined) return res.status(404).json({ error: "Build not found" });
+    if (combined.raw.status !== 'FAILURE') {
+      return res.json({
+        buildNumber: combined.raw.buildNumber,
+        aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
+      });
+    }
     const analysis = await reanalyzeBuild(Number(number), { io });
-    if (!analysis) return res.status(404).json({ error: "Build not found" });
     return res.json(analysis);
   } catch (e) {
     if (e?.status === 429) {
