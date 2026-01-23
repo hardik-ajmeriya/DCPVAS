@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
+import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
 
 export default function History() {
   const [rows, setRows] = useState([]);
@@ -23,6 +24,45 @@ export default function History() {
       }
     }
     load();
+  }, []);
+
+  // Live updates: push new builds and mark successes without REST
+  useEffect(() => {
+    const unsubBuilds = subscribeBuilds({
+      onNew: (payload) => {
+        setRows((prev) => {
+          const exists = prev.some((r) => r.buildNumber === payload?.buildNumber);
+          if (exists) return prev;
+          const item = {
+            jobName: payload?.jobName || 'Pipeline',
+            buildNumber: payload?.buildNumber,
+            status: 'UNKNOWN',
+            executedAt: new Date().toISOString(),
+            failedStage: null,
+            confidenceScore: 0,
+          };
+          return [item, ...prev].slice(0, 1000);
+        });
+      },
+      onSuccess: (payload) => {
+        setRows((prev) => prev.map((r) => (
+          r.buildNumber === payload?.buildNumber ? { ...r, status: 'SUCCESS' } : r
+        )));
+      },
+    });
+    const unsubAnalysis = subscribeAnalysis({
+      onProgress: (p) => {
+        setRows((prev) => prev.map((r) => (
+          r.buildNumber === p?.buildNumber ? { ...r, status: 'FAILURE' } : r
+        )));
+      },
+      onComplete: (p) => {
+        setRows((prev) => prev.map((r) => (
+          r.buildNumber === p?.buildNumber ? { ...r, status: 'FAILURE' } : r
+        )));
+      },
+    });
+    return () => { unsubBuilds(); unsubAnalysis(); };
   }, []);
 
   const viewBuild = async (num) => {
@@ -57,7 +97,7 @@ export default function History() {
               </thead>
               <tbody className="divide-y">
                 {rows.map((r) => (
-                  <tr key={r.buildNumber}>
+                  <tr key={r._id || `${r.jobName || 'pipeline'}#${r.buildNumber}`}>
                     <td className="py-2 pr-4 font-medium">#{r.buildNumber}</td>
                     <td className="py-2 pr-4">
                       <span className={`px-2 py-1 rounded text-xs ${r.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : r.status === 'FAILURE' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>

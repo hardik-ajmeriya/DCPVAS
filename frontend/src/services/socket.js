@@ -44,7 +44,24 @@ export function getSocket() {
   return socket;
 }
 
+// Subscribe to build lifecycle events: build:new and build:success
+// handlers: { onNew?: (payload) => void, onSuccess?: (payload) => void }
+export function subscribeBuilds(handlers = {}) {
+  const { onNew, onSuccess } = handlers;
+  if (typeof onNew === 'function') {
+    socket.on('build:new', onNew);
+  }
+  if (typeof onSuccess === 'function') {
+    socket.on('build:success', onSuccess);
+  }
+  return () => {
+    if (typeof onNew === 'function') socket.off('build:new', onNew);
+    if (typeof onSuccess === 'function') socket.off('build:success', onSuccess);
+  };
+}
+
 export default {
   getSocket,
   subscribeAnalysis,
+  subscribeBuilds,
 };

@@ -189,9 +189,8 @@ async function updateCacheOnce() {
         io.emit('build:new', { jobName: cfg.jobName || 'unknown-job', buildNumber: normalized.buildNumber });
       } catch {}
     }
-    logs = await fetchFullLog(normalized.buildNumber);
-    // Remove Jenkins console notes / transport artifacts
-    logs = decodeJenkinsConsole(logs);
+    const originalLogs = await fetchFullLog(normalized.buildNumber);
+    logs = originalLogs; // Keep raw logs for UI; do not filter here
     stages = await fetchStages(normalized.buildNumber);
   }
   cache = {
@@ -217,18 +216,25 @@ async function updateCacheOnce() {
             buildNumber: normalized.buildNumber,
             status: statusNorm,
             stages,
-            // Store cleaned, human-readable logs (strip Jenkins console notes)
-            rawLogs: decodeJenkinsConsole(logs || ''),
+            // Store original Jenkins console text unfiltered for UI
+            rawLogs: logs || '',
             consoleUrl,
             executedAt: new Date(),
           });
           console.log(`Saved raw logs ${jobName} #${normalized.buildNumber} (${statusNorm})`);
-          // Fire-and-forget async AI analysis; do not block polling
-          Promise.resolve()
-            .then(() => storeAIAnalysisForRawLog(rawDoc))
-            .catch((err) => {
-              console.error('AI analysis scheduling failed:', err?.message || err);
-            });
+          // Schedule AI analysis ONLY for failures
+          if (statusNorm === 'FAILURE') {
+            Promise.resolve()
+              .then(() => storeAIAnalysisForRawLog(rawDoc, { io }))
+              .catch((err) => {
+                console.error('AI analysis scheduling failed:', err?.message || err);
+              });
+          } else if (statusNorm === 'SUCCESS') {
+            // Emit success event to update frontend instantly
+            try {
+              io?.emit('build:success', { buildNumber: normalized.buildNumber });
+            } catch {}
+          }
         }
       }
     }
@@ -319,9 +325,10 @@ async function ensureMissingAnalysesScheduled() {
     const raws = await PipelineRawLog.find().sort({ executedAt: -1 }).limit(5);
     for (const raw of raws) {
       const ai = await PipelineAIAnalysis.findOne({ jobName: raw.jobName, buildNumber: raw.buildNumber }).sort({ updatedAt: -1 }).lean();
-      if (!ai) {
-        console.log(`[AI] Scheduling missing analysis for build #${raw.buildNumber}`);
-        await storeAIAnalysisForRawLog(raw);
+      // Only schedule analysis for failed builds and when analysis is missing
+      if (raw.status === 'FAILURE' && !ai) {
+        console.log(`[AI] Scheduling missing analysis for failed build #${raw.buildNumber}`);
+        await storeAIAnalysisForRawLog(raw, { io });
       }
     }
   } catch (err) {

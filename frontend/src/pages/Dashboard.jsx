@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import { getLatestPipeline } from '../services/api.js';
-import { subscribeAnalysis } from '../services/socket.js';
+import { subscribeAnalysis, subscribeBuilds } from '../services/socket.js';
+import { getRawLogs, getPipelineBuild } from '../services/api.js';
 
 export default function Dashboard({ mode }) {
   const [latest, setLatest] = useState(null);
@@ -46,8 +47,13 @@ export default function Dashboard({ mode }) {
           return prev;
         });
       },
-      onComplete: (payload) => {
+      onComplete: async (payload) => {
         // payload: { buildNumber, status: 'READY', humanSummary, suggestedFix, technicalRecommendation, confidenceScore }
+        let logsText = null;
+        try {
+          const res = await getRawLogs(payload.buildNumber);
+          logsText = res?.rawLogs || null;
+        } catch {}
         setLatest((prev) => {
           if (!prev || prev.buildNumber === payload.buildNumber) {
             return {
@@ -59,6 +65,7 @@ export default function Dashboard({ mode }) {
               suggestedFix: payload.suggestedFix ?? prev?.suggestedFix ?? null,
               technicalRecommendation: payload.technicalRecommendation ?? prev?.technicalRecommendation ?? null,
               confidenceScore: typeof payload.confidenceScore === 'number' ? payload.confidenceScore : (prev?.confidenceScore ?? null),
+              logs: logsText ?? prev?.logs ?? null,
             };
           }
           return prev;
@@ -68,6 +75,51 @@ export default function Dashboard({ mode }) {
     return () => {
       unsubscribe();
     };
+  }, []);
+
+  // Build lifecycle events: build:new and build:success
+  useEffect(() => {
+    const unsubscribe = subscribeBuilds({
+      onNew: (payload) => {
+        // payload: { jobName, buildNumber }
+        setLatest((prev) => {
+          // Only update if no data or newer build number
+          if (!prev || (payload?.buildNumber && payload.buildNumber !== prev.buildNumber)) {
+            return {
+              jobName: payload?.jobName || prev?.jobName || 'Pipeline',
+              buildNumber: payload?.buildNumber || prev?.buildNumber || null,
+              status: 'UNKNOWN',
+              analysisStatus: 'ANALYSIS_IN_PROGRESS',
+              analysisStep: 'FETCHING_LOGS',
+            };
+          }
+          return prev;
+        });
+      },
+      onSuccess: async (payload) => {
+        // payload: { buildNumber }
+        let logsText = null;
+        try {
+          const res = await getRawLogs(payload.buildNumber);
+          logsText = res?.rawLogs || null;
+        } catch {}
+        setLatest((prev) => {
+          if (!prev || prev.buildNumber === payload?.buildNumber) {
+            return {
+              ...(prev || {}),
+              buildNumber: payload?.buildNumber ?? prev?.buildNumber ?? null,
+              status: 'SUCCESS',
+              aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
+              analysisStatus: undefined,
+              analysisStep: undefined,
+              logs: logsText ?? prev?.logs ?? null,
+            };
+          }
+          return prev;
+        });
+      },
+    });
+    return () => unsubscribe();
   }, []);
 
   const lastUpdatedLabel = useMemo(() => {

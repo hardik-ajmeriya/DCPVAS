@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getRawLogs } from '../services/api.js';
 
-const tabs = ['Human Summary', 'Suggested Fix', 'Technical Recommendation', 'Raw Logs'];
+const DEFAULT_TABS = ['Human Summary', 'Suggested Fix', 'Technical Recommendation', 'Raw Logs'];
 
 function ProgressBar({ step }) {
   const percent = mapStepToPercent(step);
@@ -80,21 +80,33 @@ export default function FailureAnalysis({ run }) {
   const buildNumber = run?.buildNumber || analysis?.buildNumber;
   const status = run?.analysisStatus || analysis?.analysisStatus;
   const step = run?.analysisStep || analysis?.analysisStep;
+  const aiSkipped = (run?.status === 'SUCCESS') || !!(analysis?.skipped) || !!(run?.aiAnalysis?.skipped);
+  const tabs = aiSkipped ? ['Raw Logs'] : DEFAULT_TABS;
   // Auto-switch to Human Summary when analysis completes
   useEffect(() => {
+    if (aiSkipped) {
+      setTab('Raw Logs');
+      return;
+    }
     if (status === 'READY' || step === 'COMPLETED') {
       setTab('Human Summary');
     }
-  }, [status, step]);
+  }, [status, step, aiSkipped]);
 
   useEffect(() => {
-    // reset logs when run changes
-    setLogs(null);
-  }, [buildNumber]);
+    // Initialize logs from run when available to avoid refetching
+    setLogs(run?.logs ?? null);
+  }, [buildNumber, run?.logs]);
 
   return (
     <div className="p-4 bg-white rounded shadow mt-4">
       <div className="font-semibold mb-3">Failure Analysis</div>
+
+      {aiSkipped && (
+        <div className="mb-3 rounded border border-green-300 bg-green-50 text-green-800 px-3 py-2 text-sm">
+          AI analysis skipped — no failures detected
+        </div>
+      )}
 
       <div className="flex gap-2 mb-3">
         {tabs.map((t) => (
@@ -108,7 +120,7 @@ export default function FailureAnalysis({ run }) {
         ))}
       </div>
 
-      {tab === 'Human Summary' && (
+      {!aiSkipped && tab === 'Human Summary' && (
         <div>
           <h3 className="font-semibold">Human Summary</h3>
           {status === 'ANALYSIS_IN_PROGRESS' || analysis.humanSummary == null ? (
@@ -158,7 +170,7 @@ export default function FailureAnalysis({ run }) {
         </div>
       )}
 
-      {tab === 'Suggested Fix' && (
+      {!aiSkipped && tab === 'Suggested Fix' && (
         <div>
           <h3 className="font-semibold">Suggested Fix</h3>
           {status === 'ANALYSIS_IN_PROGRESS' || analysis.suggestedFix == null ? (
@@ -203,7 +215,7 @@ export default function FailureAnalysis({ run }) {
         </div>
       )}
 
-      {tab === 'Technical Recommendation' && (
+      {!aiSkipped && tab === 'Technical Recommendation' && (
         <div>
           <h3 className="font-semibold">Technical Recommendation</h3>
           {status === 'ANALYSIS_IN_PROGRESS' || analysis.technicalRecommendation == null ? (
@@ -249,35 +261,36 @@ export default function FailureAnalysis({ run }) {
       {tab === 'Raw Logs' && (
         <div>
           <h3 className="font-semibold">Raw Logs</h3>
-          <RawLogs buildNumber={buildNumber} logs={logs} setLogs={setLogs} />
+          <RawLogs buildNumber={buildNumber} logs={logs} setLogs={setLogs} aiSkipped={aiSkipped} />
         </div>
       )}
     </div>
   );
 }
 
-function RawLogs({ buildNumber, logs, setLogs }) {
-  const [loading, setLoading] = useState(false);
+function RawLogs({ buildNumber, logs, setLogs, aiSkipped }) {
+  const [loadingLogs, setLoadingLogs] = useState(false);
   const [error, setError] = useState('');
   const [lines, setLines] = useState([]);
 
   useEffect(() => {
-    if (!buildNumber || logs != null) return;
+    const noLogsYet = logs == null || String(logs).trim().length === 0;
+    if (!buildNumber || !noLogsYet) return;
     let mounted = true;
     (async () => {
       try {
-        setLoading(true);
+        setLoadingLogs(true);
         const res = await getRawLogs(buildNumber);
         if (mounted) {
           const text = res?.rawLogs || '';
           setLogs(text);
-          setLines(text.split(/\r?\n/));
+          setLines(String(text).split(/\r?\n/));
           setError('');
         }
       } catch (e) {
         if (mounted) setError('Failed to load logs');
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) setLoadingLogs(false);
       }
     })();
     return () => {
@@ -285,8 +298,14 @@ function RawLogs({ buildNumber, logs, setLogs }) {
     };
   }, [buildNumber, logs, setLogs]);
 
+  // When logs are provided via run.logs or setLogs, derive lines for rendering
+  useEffect(() => {
+    const text = String(logs || '');
+    setLines(text.length ? text.split(/\r?\n/) : []);
+  }, [logs]);
+
   if (!buildNumber) return <div className="text-sm text-gray-500">No build selected.</div>;
-  if (loading) return <div className="text-sm text-gray-500">Loading logs…</div>;
+  if (loadingLogs) return <div className="text-sm text-gray-500">Fetching logs…</div>;
   if (error) return <div className="text-sm text-red-600">{error}</div>;
   // Syntax-colored terminal-style rendering
   const getColor = (line) => {
@@ -301,7 +320,7 @@ function RawLogs({ buildNumber, logs, setLogs }) {
     <div className="bg-gray-900 p-3 rounded overflow-auto max-h-[600px]">
       <div className="font-mono text-xs whitespace-pre">
         {lines.length === 0 ? (
-          <span className="text-gray-400">—</span>
+          <span className="text-gray-400">No logs available yet.</span>
         ) : (
           lines.map((line, i) => (
             <div key={i} className={getColor(line)}>{line || ' '}</div>

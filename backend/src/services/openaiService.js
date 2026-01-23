@@ -104,6 +104,10 @@ export async function analyzeCleanedLogsStrict(inputLogs) {
 export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   const { model } = getConfig();
   if (!rawDoc) throw new Error('rawDoc is required');
+  // Only analyze failed builds; skip SUCCESS to conserve resources
+  if (rawDoc.status !== 'FAILURE') {
+    return { buildNumber: rawDoc.buildNumber, aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' } };
+  }
   const { io, room } = options || {};
   const emitProgress = (stage, message) => {
     if (io)

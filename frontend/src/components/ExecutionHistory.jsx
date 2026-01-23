@@ -16,8 +16,11 @@ export default function ExecutionHistory({ history, onSelect, onOpenLogs }) {
               </div>
             </button>
             <div className="flex items-center gap-3 pr-2">
-              <div className={`text-sm ${h.status === 'SUCCESS' ? 'text-success' : h.status === 'FAILED' ? 'text-failure' : 'text-gray-600'}`}>{h.status}</div>
+              <div className={`text-sm ${h.status === 'SUCCESS' ? 'text-success' : (h.status === 'FAILED' || h.status === 'FAILURE') ? 'text-failure' : 'text-gray-600'}`}>{h.status === 'FAILURE' ? 'FAILED' : h.status}</div>
               {h.failedStage && <div className="text-xs text-gray-600">{h.failedStage}</div>}
+              { (h.status === 'SUCCESS' || (h.aiAnalysis && h.aiAnalysis.skipped)) && (
+                <span className="text-xs text-gray-600">AI Analysis: Not Required</span>
+              )}
               <button
                 onClick={() => onOpenLogs?.(h)}
                 className="px-2 py-1 text-xs rounded bg-black text-white hover:bg-neutral"

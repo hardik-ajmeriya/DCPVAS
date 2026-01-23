@@ -52,9 +52,14 @@ export async function getBuildWithAnalysis(buildNumber) {
 export async function getRawLogs(buildNumber) {
   const raw = await PipelineRawLog.findOne({ buildNumber }).lean();
   if (!raw) return null;
-  // Ensure any legacy stored logs are cleaned before returning
-  const text = decodeJenkinsConsole(raw.rawLogs || '');
-  return { rawLogs: text, consoleUrl: raw.consoleUrl, executedAt: raw.executedAt };
+  // For detection only, compute a cleaned version; return original unfiltered logs to UI
+  const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
+  const isCompilationFailure =
+    raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
+  const placeholder =
+    'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
+  const outLogs = isCompilationFailure ? placeholder : (raw.rawLogs || '');
+  return { rawLogs: outLogs, consoleUrl: raw.consoleUrl, executedAt: raw.executedAt };
 }
 
 export async function getFailuresTimeline(limit = 50) {
@@ -101,6 +106,10 @@ export async function reanalyzeBuild(buildNumber, options = {}) {
   if (!raw) return null;
   // Re-fetch full document for _id
   const rawDoc = await PipelineRawLog.findById(raw._id);
+  // Only reanalyze failed builds
+  if (raw.status !== 'FAILURE') {
+    return { aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' }, buildNumber };
+  }
   // Import here to avoid circular deps if any
   const { storeAIAnalysisForRawLog } = await import('./openaiService.js');
   const analysis = await storeAIAnalysisForRawLog(rawDoc, options);
