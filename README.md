@@ -138,6 +138,8 @@ See the repository for the mandated monorepo structure under `dcpvas/` with `bac
 - Jenkins test pipeline can be triggered manually from Jenkins UI.
 - DCPVAS reflects new builds automatically after successful connection.
 
+
+
 ## Real-Time Events (Socket.IO)
 - `analysis:progress` — `{ buildNumber, status: 'ANALYSIS_IN_PROGRESS', stage, message }`
    - Stages: `FETCHING_LOGS` → `FILTERING_ERRORS` → `AI_ANALYZING` → `STORING_RESULTS` → `COMPLETED`
