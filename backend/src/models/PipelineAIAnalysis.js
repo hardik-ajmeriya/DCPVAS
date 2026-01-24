@@ -5,8 +5,19 @@ const PipelineAIAnalysisSchema = new mongoose.Schema(
     rawLogRef: { type: mongoose.Schema.Types.ObjectId, ref: 'PipelineRawLog', required: true },
     jobName: { type: String, required: true, trim: true },
     buildNumber: { type: Number, required: true },
-    // Async progress tracking
-    analysisStatus: { type: String, enum: ['ANALYSIS_IN_PROGRESS', 'READY'], required: true, default: 'ANALYSIS_IN_PROGRESS' },
+    // Final Jenkins result analyzed; used to guard duplicate analyses
+    finalResult: { type: String, enum: ['SUCCESS', 'FAILURE', 'ABORTED'], required: true, default: 'FAILURE' },
+    // Async progress tracking (MongoDB is the source of truth)
+    // Industry-standard discrete phases
+    analysisStatus: {
+      type: String,
+      enum: ['FETCHING_LOGS', 'FILTERING_ERRORS', 'AI_ANALYZING', 'STORING_RESULTS', 'COMPLETED', 'FAILED', 'SKIPPED'],
+      required: true,
+      default: 'FETCHING_LOGS',
+    },
+    // Coarse analysis run lifecycle for frontend recovery
+    analysisRunStatus: { type: String, enum: ['PENDING', 'RUNNING', 'COMPLETED'], default: 'PENDING' },
+    // Legacy step field retained for compatibility; mirrors analysisStatus
     analysisStep: { type: String, default: 'FETCHING_LOGS' },
     // AI outputs (nullable until READY)
     failedStage: { type: String, default: null },

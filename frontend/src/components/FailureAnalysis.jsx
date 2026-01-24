@@ -1,20 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getRawLogs } from '../services/api.js';
+import { requestLogStream, subscribeLogs } from '../services/socket.js';
+import { useAnalysisStatusQuery } from '../services/queries.js';
 
-const DEFAULT_TABS = ['Human Summary', 'Suggested Fix', 'Technical Recommendation', 'Raw Logs'];
+const DEFAULT_TABS = [
+  'Human Summary',
+  'Suggested Fix',
+  'Technical Recommendation',
+  'Raw Logs',
+];
 
+/* -------------------- Progress Bar -------------------- */
 function ProgressBar({ step }) {
   const percent = mapStepToPercent(step);
   const label = mapStepToLabel(step);
+
   return (
     <div className="mt-3">
       <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
         <div
-          className="bg-blue-600 h-2"
-          style={{ width: `${percent}%`, transition: 'width 0.5s ease' }}
+          className="bg-blue-600 h-2 transition-all duration-500"
+          style={{ width: `${percent}%` }}
         />
       </div>
-      <div className="text-xs text-gray-600 mt-1 flex items-center justify-between">
+      <div className="text-xs text-gray-600 mt-1 flex justify-between">
         <span>{label}</span>
         <span>{percent}%</span>
       </div>
@@ -24,35 +33,37 @@ function ProgressBar({ step }) {
 
 function mapStepToPercent(step) {
   switch (step) {
-    // New Socket.IO stages → percentage mapping
-    case 'FETCHING_LOGS':
+    case 'WAITING_FOR_BUILD':
       return 10;
+    case 'WAITING_FOR_LOGS':
+      return 20;
+    case 'FETCHING_LOGS':
+      return 20;
+    case 'CLEANING_LOGS':
+      return 40;
     case 'FILTERING_ERRORS':
-      return 30;
+      return 40;
     case 'AI_ANALYZING':
       return 60;
     case 'STORING_RESULTS':
-      return 85;
+      return 80;
     case 'COMPLETED':
       return 100;
-    // Legacy internal step names fallback
-    case 'CLEANING_LOGS':
-      return 30;
-    case 'CALLING_OPENAI':
-      return 60;
-    case 'SAVING_RESULT':
-      return 85;
-    case 'READY':
-      return 100;
     default:
-      return 10;
+      return 0;
   }
 }
 
 function mapStepToLabel(step) {
   switch (step) {
+    case 'WAITING_FOR_BUILD':
+      return 'Waiting for pipeline to finish';
+    case 'WAITING_FOR_LOGS':
+      return 'Waiting for final logs';
     case 'FETCHING_LOGS':
       return 'Fetching logs';
+    case 'CLEANING_LOGS':
+      return 'Cleaning logs';
     case 'FILTERING_ERRORS':
       return 'Filtering errors';
     case 'AI_ANALYZING':
@@ -60,270 +71,338 @@ function mapStepToLabel(step) {
     case 'STORING_RESULTS':
       return 'Storing results';
     case 'COMPLETED':
-    case 'READY':
       return 'Completed';
-    case 'CLEANING_LOGS':
-      return 'Cleaning logs';
-    case 'CALLING_OPENAI':
-      return 'Calling AI';
-    case 'SAVING_RESULT':
-      return 'Saving result';
     default:
-      return 'Preparing';
+      return 'Idle';
   }
 }
 
+/* -------------------- Main Component -------------------- */
 export default function FailureAnalysis({ run }) {
   const [tab, setTab] = useState('Human Summary');
   const [logs, setLogs] = useState(null);
   const analysis = run?.analysis || run || {};
-  const buildNumber = run?.buildNumber || analysis?.buildNumber;
-  const status = run?.analysisStatus || analysis?.analysisStatus;
-  const step = run?.analysisStep || analysis?.analysisStep;
-  const aiSkipped = (run?.status === 'SUCCESS') || !!(analysis?.skipped) || !!(run?.aiAnalysis?.skipped);
+  const buildNumber = run?.buildNumber;
+  const status = run?.analysisStatus;
+  const buildRunning = run?.buildStatus === 'BUILDING';
+  const { data: analysisStatusFromQuery } = useAnalysisStatusQuery(buildNumber);
+  const stepFromQuery = typeof analysisStatusFromQuery === 'object' ? analysisStatusFromQuery?.status : analysisStatusFromQuery;
+  const finalResultPresent = typeof analysisStatusFromQuery === 'object' ? (analysisStatusFromQuery?.finalResult != null) : (run?.finalResult != null);
+  const resultReady = Boolean(finalResultPresent);
+
+  const aiSkipped =
+    run?.status === 'SUCCESS' ||
+    analysis?.skipped === true ||
+    run?.aiAnalysis?.skipped === true;
+
   const tabs = aiSkipped ? ['Raw Logs'] : DEFAULT_TABS;
-  // Auto-switch to Human Summary when analysis completes
+
+  /* Auto tab switch */
   useEffect(() => {
     if (aiSkipped) {
       setTab('Raw Logs');
       return;
     }
-    if (status === 'READY' || step === 'COMPLETED') {
+    if (status === 'COMPLETED') {
       setTab('Human Summary');
     }
-  }, [status, step, aiSkipped]);
+  }, [status, aiSkipped]);
 
+  /* Init logs if already present */
   useEffect(() => {
-    // Initialize logs from run when available to avoid refetching
     setLogs(run?.logs ?? null);
   }, [buildNumber, run?.logs]);
+
+  // Progress bar driven only by analysis status from React Query
 
   return (
     <div className="p-4 bg-white rounded shadow mt-4">
       <div className="font-semibold mb-3">Failure Analysis</div>
 
-      {aiSkipped && (
+      {status === 'NOT_REQUIRED' && (
         <div className="mb-3 rounded border border-green-300 bg-green-50 text-green-800 px-3 py-2 text-sm">
-          AI analysis skipped — no failures detected
+          ✅ Pipeline successful — no analysis required
         </div>
       )}
 
-      <div className="flex gap-2 mb-3">
+      {/* Tabs */}
+      <div className="flex gap-2 mb-3 flex-wrap">
         {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-3 py-2 rounded ${tab === t ? 'bg-neutral text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+            className={`px-3 py-2 rounded text-sm ${
+              tab === t
+                ? 'bg-neutral text-white'
+                : 'bg-gray-100 hover:bg-gray-200'
+            }`}
           >
             {t}
           </button>
         ))}
       </div>
 
+      {/* ---------------- HUMAN SUMMARY ---------------- */}
       {!aiSkipped && tab === 'Human Summary' && (
-        <div>
-          <h3 className="font-semibold">Human Summary</h3>
-          {status === 'ANALYSIS_IN_PROGRESS' || analysis.humanSummary == null ? (
-            <div>
-              <p className="text-sm text-gray-600">Analyzing logs… please wait</p>
-              <ProgressBar step={step} />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {analysis.humanSummary?.overview && (
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{analysis.humanSummary.overview}</p>
-              )}
-              {Array.isArray(analysis.humanSummary?.failureCause) && analysis.humanSummary.failureCause.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Failure Cause</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.humanSummary.failureCause.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {Array.isArray(analysis.humanSummary?.pipelineImpact) && analysis.humanSummary.pipelineImpact.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Pipeline Impact</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.humanSummary.pipelineImpact.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          {typeof analysis.confidenceScore === 'number' && (
-            <div className="mt-4">
-              <div className="text-xs text-gray-600 mb-1">AI Confidence</div>
-              <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
-                <div
-                  className="bg-green-600 h-2"
-                  style={{ width: `${Math.round((analysis.confidenceScore || 0) * 100)}%` }}
-                />
+        <SectionWrapper
+          title="Human Summary"
+          buildRunning={buildRunning}
+          status={status}
+          step={stepFromQuery || status}
+          resultReady={resultReady}
+        >
+          <>
+            {analysis.humanSummary?.overview && (
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                {analysis.humanSummary.overview}
+              </p>
+            )}
+            {Array.isArray(analysis.humanSummary?.failureCause) && analysis.humanSummary.failureCause.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Failure Cause</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.humanSummary.failureCause.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
               </div>
-              <div className="text-xs text-gray-600 mt-1">{Math.round((analysis.confidenceScore || 0) * 100)}%</div>
-            </div>
-          )}
-        </div>
+            )}
+            {Array.isArray(analysis.humanSummary?.pipelineImpact) && analysis.humanSummary.pipelineImpact.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Pipeline Impact</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.humanSummary.pipelineImpact.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {typeof analysis.confidenceScore === 'number' && (
+              <div className="mt-4">
+                <div className="text-xs text-gray-600 mb-1">AI Confidence</div>
+                <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
+                  <div
+                    className="bg-green-600 h-2"
+                    style={{ width: `${Math.round((analysis.confidenceScore || 0) * 100)}%` }}
+                  />
+                </div>
+                <div className="text-xs text-gray-600 mt-1">{Math.round((analysis.confidenceScore || 0) * 100)}%</div>
+              </div>
+            )}
+          </>
+        </SectionWrapper>
       )}
 
+      {/* ---------------- SUGGESTED FIX ---------------- */}
       {!aiSkipped && tab === 'Suggested Fix' && (
-        <div>
-          <h3 className="font-semibold">Suggested Fix</h3>
-          {status === 'ANALYSIS_IN_PROGRESS' || analysis.suggestedFix == null ? (
-            <div>
-              <p className="text-sm text-gray-600">Analyzing logs… please wait</p>
-              <ProgressBar step={step} />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {Array.isArray(analysis.suggestedFix?.immediateActions) && analysis.suggestedFix.immediateActions.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Immediate Actions</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.suggestedFix.immediateActions.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {Array.isArray(analysis.suggestedFix?.debuggingSteps) && analysis.suggestedFix.debuggingSteps.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Debugging Steps</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.suggestedFix.debuggingSteps.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {Array.isArray(analysis.suggestedFix?.verification) && analysis.suggestedFix.verification.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Verification</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.suggestedFix.verification.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <SectionWrapper
+          title="Suggested Fix"
+          buildRunning={buildRunning}
+          status={status}
+          step={stepFromQuery || status}
+          resultReady={resultReady}
+        >
+          <>
+            {Array.isArray(analysis.suggestedFix?.immediateActions) && analysis.suggestedFix.immediateActions.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Immediate Actions</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.suggestedFix.immediateActions.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {Array.isArray(analysis.suggestedFix?.debuggingSteps) && analysis.suggestedFix.debuggingSteps.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Debugging Steps</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.suggestedFix.debuggingSteps.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {Array.isArray(analysis.suggestedFix?.verification) && analysis.suggestedFix.verification.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Verification</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.suggestedFix.verification.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        </SectionWrapper>
       )}
 
+      {/* ---------------- TECHNICAL RECOMMENDATION ---------------- */}
       {!aiSkipped && tab === 'Technical Recommendation' && (
-        <div>
-          <h3 className="font-semibold">Technical Recommendation</h3>
-          {status === 'ANALYSIS_IN_PROGRESS' || analysis.technicalRecommendation == null ? (
-            <div>
-              <p className="text-sm text-gray-600">Analyzing logs… please wait</p>
-              <ProgressBar step={step} />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {Array.isArray(analysis.technicalRecommendation?.codeLevelActions) && analysis.technicalRecommendation.codeLevelActions.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-100 bg-gray-900 rounded px-3 py-2">Code-level Actions</div>
-                  <pre className="text-sm bg-gray-900 text-gray-100 p-3 rounded whitespace-pre-wrap font-mono">
-                    {analysis.technicalRecommendation.codeLevelActions.join('\n')}
-                  </pre>
-                </div>
-              )}
-              {Array.isArray(analysis.technicalRecommendation?.pipelineImprovements) && analysis.technicalRecommendation.pipelineImprovements.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Pipeline Improvements</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.technicalRecommendation.pipelineImprovements.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {Array.isArray(analysis.technicalRecommendation?.preventionStrategies) && analysis.technicalRecommendation.preventionStrategies.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-gray-800">Prevention Strategies</div>
-                  <ul className="list-disc ml-5 text-sm text-gray-700">
-                    {analysis.technicalRecommendation.preventionStrategies.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <SectionWrapper
+          title="Technical Recommendation"
+          buildRunning={buildRunning}
+          status={status}
+          step={stepFromQuery || status}
+          resultReady={resultReady}
+          dark
+        >
+          <>
+            {Array.isArray(analysis.technicalRecommendation?.codeLevelActions) && analysis.technicalRecommendation.codeLevelActions.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-100 bg-gray-900 rounded px-3 py-2">Code-level Actions</div>
+                <pre className="text-sm bg-gray-900 text-gray-100 p-3 rounded whitespace-pre-wrap font-mono">
+                  {analysis.technicalRecommendation.codeLevelActions.join('\n')}
+                </pre>
+              </div>
+            )}
+            {Array.isArray(analysis.technicalRecommendation?.pipelineImprovements) && analysis.technicalRecommendation.pipelineImprovements.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Pipeline Improvements</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.technicalRecommendation.pipelineImprovements.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {Array.isArray(analysis.technicalRecommendation?.preventionStrategies) && analysis.technicalRecommendation.preventionStrategies.length > 0 && (
+              <div>
+                <div className="text-sm font-medium text-gray-800">Prevention Strategies</div>
+                <ul className="list-disc ml-5 text-sm text-gray-700">
+                  {analysis.technicalRecommendation.preventionStrategies.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        </SectionWrapper>
       )}
 
+      {/* ---------------- RAW LOGS ---------------- */}
       {tab === 'Raw Logs' && (
-        <div>
-          <h3 className="font-semibold">Raw Logs</h3>
-          <RawLogs buildNumber={buildNumber} logs={logs} setLogs={setLogs} aiSkipped={aiSkipped} />
-        </div>
+        <RawLogs
+          buildNumber={buildNumber}
+          logs={logs}
+          setLogs={setLogs}
+          finalized={Boolean(run?.logsFinal) || run?.buildStatus === 'COMPLETED'}
+        />
       )}
     </div>
   );
 }
 
-function RawLogs({ buildNumber, logs, setLogs, aiSkipped }) {
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  const [error, setError] = useState('');
+/* -------------------- Section Wrapper -------------------- */
+function SectionWrapper({ title, buildRunning, status, step, resultReady, children, dark }) {
+  return (
+    <div>
+      <h3 className="font-semibold mb-2">{title}</h3>
+
+      {buildRunning && (
+        <div className="rounded border border-blue-300 bg-blue-50 text-blue-800 px-3 py-2 text-sm">
+          ⏳ Pipeline running… waiting for final logs
+        </div>
+      )}
+
+      {!buildRunning && status === 'WAITING_FOR_BUILD' && (
+        <div className="rounded border border-blue-300 bg-blue-50 text-blue-800 px-3 py-2 text-sm">
+          ⏳ Waiting for pipeline to finish
+        </div>
+      )}
+
+      {/* Show progress whenever analysis is not completed OR result is not yet ready */}
+      {!buildRunning && step && (step !== 'FAILED') && ((step !== 'COMPLETED') || !resultReady) && (
+        <div>
+          <p className="text-sm text-gray-600">
+            {step === 'STORING_RESULTS' || (step === 'COMPLETED' && !resultReady) ? 'Finalizing analysis…' : 'Analyzing logs…'}
+          </p>
+          <ProgressBar step={step} />
+        </div>
+      )}
+
+      {/* Render results only when completed and data is ready */}
+      {!buildRunning && status === 'COMPLETED' && resultReady && children}
+      {!buildRunning && status === 'FAILED' && children}
+    </div>
+  );
+}
+
+/* -------------------- RAW LOGS -------------------- */
+function RawLogs({ buildNumber, logs, setLogs, finalized }) {
   const [lines, setLines] = useState([]);
+  const [streaming, setStreaming] = useState(false);
+  const [finalizedState, setFinalizedState] = useState(Boolean(finalized));
+  const containerRef = useRef(null);
 
   useEffect(() => {
-    const noLogsYet = logs == null || String(logs).trim().length === 0;
-    if (!buildNumber || !noLogsYet) return;
-    let mounted = true;
-    (async () => {
-      try {
-        setLoadingLogs(true);
-        const res = await getRawLogs(buildNumber);
-        if (mounted) {
-          const text = res?.rawLogs || '';
-          setLogs(text);
-          setLines(String(text).split(/\r?\n/));
-          setError('');
-        }
-      } catch (e) {
-        if (mounted) setError('Failed to load logs');
-      } finally {
-        if (mounted) setLoadingLogs(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [buildNumber, logs, setLogs]);
+    if (!buildNumber) return;
 
-  // When logs are provided via run.logs or setLogs, derive lines for rendering
+    setStreaming(true);
+
+    const unsubscribe = subscribeLogs(buildNumber, {
+      onAppend: (chunk) => {
+        setLogs((prev) => (prev ? prev + chunk : chunk));
+      },
+      onComplete: () => {
+        setStreaming(false);
+        setFinalizedState(true);
+      },
+      onFinal: (payload) => {
+        // Replace with authoritative final logs and stop streaming
+        setLogs(String(payload?.logs || ''));
+        setStreaming(false);
+        setFinalizedState(true);
+      },
+    });
+
+    return () => unsubscribe();
+  }, [buildNumber]);
+
   useEffect(() => {
-    const text = String(logs || '');
-    setLines(text.length ? text.split(/\r?\n/) : []);
+    setLines(String(logs || '').split(/\r?\n/));
   }, [logs]);
 
-  if (!buildNumber) return <div className="text-sm text-gray-500">No build selected.</div>;
-  if (loadingLogs) return <div className="text-sm text-gray-500">Fetching logs…</div>;
-  if (error) return <div className="text-sm text-red-600">{error}</div>;
-  // Syntax-colored terminal-style rendering
-  const getColor = (line) => {
-    if (/\b(ERROR|EXCEPTION|FATAL)\b/i.test(line) || /Finished:\s*FAILURE/i.test(line) || /\bFAILED\b/i.test(line)) return 'text-red-400';
-    if (/\bSUCCESS\b/i.test(line) || /Finished:\s*SUCCESS/i.test(line)) return 'text-green-400';
+  useEffect(() => {
+    setFinalizedState(Boolean(finalized));
+  }, [finalized]);
+
+  useEffect(() => {
+    if (streaming && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [lines, streaming]);
+
+  const colorize = (line) => {
+    if (/ERROR|FAILURE|FAILED/i.test(line)) return 'text-red-400';
+    if (/SUCCESS/i.test(line)) return 'text-green-400';
     if (/\[Pipeline\]\s*stage/i.test(line)) return 'text-blue-400';
-    if (/skipped\s+due\s+to\s+earlier\s+failure/i.test(line) || /\bSKIPPED\b/i.test(line)) return 'text-orange-400';
     return 'text-gray-300';
   };
 
   return (
-    <div className="bg-gray-900 p-3 rounded overflow-auto max-h-[600px]">
+    <div
+      ref={containerRef}
+      className="bg-gray-900 p-3 rounded max-h-[600px] overflow-auto"
+    >
+      {streaming && !finalizedState && (
+        <div className="text-xs text-blue-300 mb-2">
+          Streaming logs…
+        </div>
+      )}
+      {finalizedState && (
+        <div className="text-xs text-green-300 mb-2">
+          Logs finalized
+        </div>
+      )}
       <div className="font-mono text-xs whitespace-pre">
         {lines.length === 0 ? (
-          <span className="text-gray-400">No logs available yet.</span>
+          <span className="text-gray-500">No logs available.</span>
         ) : (
           lines.map((line, i) => (
-            <div key={i} className={getColor(line)}>{line || ' '}</div>
+            <div key={i} className={colorize(line)}>
+              {line || ' '}
+            </div>
           ))
         )}
       </div>

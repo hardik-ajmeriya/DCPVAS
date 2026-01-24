@@ -17,7 +17,7 @@ export async function getLatestPipeline(req, res) {
     if (!combined) return res.status(404).json({ error: "No builds found" });
     const { raw, ai } = combined;
     const isSuccess = raw.status === 'SUCCESS';
-    const ready = !!ai && ai.analysisStatus === 'READY';
+    const ready = !!ai && (ai.analysisStatus === 'COMPLETED' || ai.analysisStep === 'READY');
     const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
     const isCompilationFailure = raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
     const placeholder = 'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
@@ -25,6 +25,10 @@ export async function getLatestPipeline(req, res) {
       jobName: raw.jobName,
       buildNumber: raw.buildNumber,
       status: raw.status,
+      buildStatus: raw.buildStatus,
+      building: raw.building,
+      logsFinal: !!raw.logsFinal,
+      finalResult: ai?.finalResult ?? (isSuccess ? 'SUCCESS' : null),
       // Provide logs; if none and compilation failed pre-execution, return placeholder
       logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
     };
@@ -33,6 +37,7 @@ export async function getLatestPipeline(req, res) {
       console.log('LOG LENGTH BEFORE RESPONSE (latest, SUCCESS):', base.logs?.length);
       return res.json({
         ...base,
+        analysisStatus: 'NOT_REQUIRED',
         aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
       });
     }
@@ -45,9 +50,9 @@ export async function getLatestPipeline(req, res) {
       humanSummary: ready ? (ai?.humanSummary ?? null) : null,
       suggestedFix: ready ? (ai?.suggestedFix ?? null) : null,
       technicalRecommendation: ready ? (ai?.technicalRecommendation ?? null) : null,
-      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : null,
-      analysisStatus: ai?.analysisStatus || 'ANALYSIS_IN_PROGRESS',
-      analysisStep: ai?.analysisStep || 'FETCHING_LOGS',
+      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : raw?.confidenceScore ?? null,
+      analysisStatus: raw?.analysisStatus || (ai?.analysisStatus === 'COMPLETED' ? 'COMPLETED' : 'WAITING_FOR_BUILD'),
+      finalResult: ai?.finalResult ?? null,
     });
   } catch (e) {
     console.error("Failed to fetch latest:", e?.message || e);
@@ -110,9 +115,13 @@ export async function getPipelineBuild(req, res) {
       jobName: raw.jobName,
       buildNumber: raw.buildNumber,
       status: raw.status,
+      buildStatus: raw.buildStatus,
+      building: raw.building,
+      logsFinal: !!raw.logsFinal,
       stages: raw.stages,
       executedAt: raw.executedAt,
       consoleUrl: raw.consoleUrl,
+      finalResult: ai?.finalResult ?? (isSuccess ? 'SUCCESS' : null),
       // Provide logs; if none and compilation failed pre-execution, return placeholder
       logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
     };
@@ -121,11 +130,12 @@ export async function getPipelineBuild(req, res) {
       console.log('LOG LENGTH BEFORE RESPONSE (build, SUCCESS):', base.logs?.length);
       return res.json({
         ...base,
+        analysisStatus: 'NOT_REQUIRED',
         aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
       });
     }
     // Failure build → include AI outputs when available
-    const ready = !!ai && ai.analysisStatus === 'READY';
+    const ready = !!ai && (ai.analysisStatus === 'COMPLETED' || ai.analysisStep === 'READY');
     console.log('STATUS', raw.status);
     console.log('RAW_LOG_LENGTH', base.logs?.length);
     return res.json({
@@ -135,9 +145,9 @@ export async function getPipelineBuild(req, res) {
       technicalRecommendation: ready ? (ai?.technicalRecommendation ?? null) : null,
       failedStage: ready ? (ai?.failedStage ?? null) : null,
       detectedError: ready ? (ai?.detectedError ?? null) : null,
-      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : null,
-      analysisStatus: ai?.analysisStatus || 'ANALYSIS_IN_PROGRESS',
-      analysisStep: ai?.analysisStep || 'FETCHING_LOGS',
+      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : raw?.confidenceScore ?? null,
+      analysisStatus: raw?.analysisStatus || (ai?.analysisStatus === 'COMPLETED' ? 'COMPLETED' : (raw.buildStatus === 'COMPLETED' ? 'WAITING_FOR_LOGS' : 'WAITING_FOR_BUILD')),
+      finalResult: ai?.finalResult ?? null,
     });
   } catch (e) {
     return res.status(502).json({ error: "Failed to fetch build" });

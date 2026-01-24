@@ -1,65 +1,116 @@
 import { useEffect, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import PipelineGraph from '../components/PipelineGraph.jsx';
-import { getPipelineBuild } from '../services/api.js';
-import { subscribeAnalysis, subscribeBuilds } from '../services/socket.js';
+import { subscribeBuilds, subscribeConnection } from '../services/socket.js';
+import { useBuildDetailsQuery, useLatestBuildQuery, useAnalysisStatusQuery } from '../services/queries.js';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function BuildDetails({ buildNumber }) {
   const [data, setData] = useState(null);
+  const [currentBuildNumber, setCurrentBuildNumber] = useState(buildNumber);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const { data: qData, isFetching } = useBuildDetailsQuery(currentBuildNumber);
+  useEffect(() => {
+    setData(qData || null);
+    setLoading(isFetching);
+  }, [qData, isFetching]);
+
+  // Fallback: poll latest build and auto-switch when a newer build appears
+  const { data: latest } = useLatestBuildQuery();
+  useEffect(() => {
+    const latestNumber = Number(latest?.buildNumber);
+    if (Number.isFinite(latestNumber) && latestNumber > 0 && latestNumber !== currentBuildNumber) {
+      // Switch to the latest build when it changes
+      setCurrentBuildNumber(latestNumber);
+      setData({
+        jobName: latest?.jobName || (data?.jobName ?? 'Pipeline'),
+        buildNumber: latestNumber,
+        status: 'UNKNOWN',
+        buildStatus: latest?.buildStatus || 'BUILDING',
+        analysisStatus: 'WAITING_FOR_BUILD',
+        logs: '',
+        stages: [],
+        consoleUrl: '',
+      });
+    }
+  }, [latest?.buildNumber]);
+
+  // Force final flush when analysis status reaches COMPLETED (polling or sockets)
+  const { data: analysisStatusObj } = useAnalysisStatusQuery(currentBuildNumber);
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const status = typeof analysisStatusObj === 'object' ? analysisStatusObj?.status : analysisStatusObj;
+    const hasFinal = typeof analysisStatusObj === 'object' ? (analysisStatusObj?.finalResult != null) : (data?.finalResult != null);
+    if (status === 'COMPLETED' && currentBuildNumber) {
+      // Invalidate build details to refetch once and update UI, then polling stops
+      queryClient.invalidateQueries({ queryKey: ['pipeline', 'build', Number(currentBuildNumber)] });
+      // If final result still not present, continue invalidating to force a refresh on next tick
+      if (!hasFinal) {
+        queryClient.invalidateQueries({ queryKey: ['pipeline', 'build', Number(currentBuildNumber)] });
+      }
+    }
+  }, [analysisStatusObj, currentBuildNumber]);
+
+  // Fallback: if no events for 20s during analysis, show retry message
+  const [stale, setStale] = useState(false);
   useEffect(() => {
     if (!buildNumber) return;
-    (async () => {
-      try {
-        setLoading(true);
-        const d = await getPipelineBuild(buildNumber);
-        setData(d);
-        setError('');
-      } catch (e) {
-        setError('Failed to load build');
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [buildNumber]);
+    if (!data) return;
+    const status = data?.analysisStatus;
+    setStale(false);
+    if (status === 'AI_ANALYZING') {
+      const t = setTimeout(() => setStale(true), 20000);
+      return () => clearTimeout(t);
+    }
+  }, [buildNumber, data?.analysisStatus]);
+
+  // React Query handles refetch intervals; remove manual polling
 
   useEffect(() => {
-    if (!buildNumber) return;
+    if (!currentBuildNumber) return;
     // Subscribe to analysis and build lifecycle events for this build
-    const unsubA = subscribeAnalysis({
-      onProgress: (payload) => {
-        if (payload?.buildNumber !== buildNumber) return;
-        // Update minimal analysis state optimistically
-        setData((prev) => prev ? { ...prev, analysisStatus: 'ANALYSIS_IN_PROGRESS', analysisStep: payload.step || prev.analysisStep } : prev);
+    const unsubB = subscribeBuilds({
+      onNew: async (payload) => {
+        if (!payload?.buildNumber) return;
+        // Hard reset to new build
+        setCurrentBuildNumber(payload.buildNumber);
+        // Immediate UI reset to BUILDING state; then refetch
+        setData({
+          jobName: payload.jobName || (data?.jobName ?? 'Pipeline'),
+          buildNumber: payload.buildNumber,
+          status: 'UNKNOWN',
+          buildStatus: 'BUILDING',
+          analysisStatus: 'WAITING_FOR_BUILD',
+          logs: '',
+          stages: [],
+          consoleUrl: '',
+        });
       },
-      onComplete: async (payload) => {
-        if (payload?.buildNumber !== buildNumber) return;
-        try {
-          const fresh = await getPipelineBuild(buildNumber);
-          setData(fresh);
-        } catch {}
+      onStarted: async (payload) => {
+        if (payload?.buildNumber !== currentBuildNumber) return;
+      },
+      onLogUpdate: async (payload) => {
+        if (payload?.buildNumber !== currentBuildNumber) return;
+      },
+      onCompleted: async (payload) => {
+        if (payload?.buildNumber !== currentBuildNumber) return;
       },
     });
-    const unsubB = subscribeBuilds({
-      onNew: () => {},
-      onSuccess: async (payload) => {
-        if (payload?.buildNumber !== buildNumber) return;
-        try {
-          const fresh = await getPipelineBuild(buildNumber);
-          setData(fresh);
-        } catch {}
+    const unsubC = subscribeConnection({
+      onConnect: async () => {
+      },
+      onReconnect: async () => {
       },
     });
     return () => {
-      unsubA();
       unsubB();
+      unsubC();
     };
-  }, [buildNumber]);
+  }, [currentBuildNumber]);
 
-  if (!buildNumber) return <div className="text-sm text-gray-500">No build selected.</div>;
+  if (!currentBuildNumber) return <div className="text-sm text-gray-500">No build selected.</div>;
   return (
     <div className="space-y-4">
       <div className="p-4 bg-white rounded shadow">
@@ -75,6 +126,9 @@ export default function BuildDetails({ buildNumber }) {
               <span className={`px-2 py-1 rounded text-xs ${data.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : data.status === 'FAILURE' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
                 {data.status}
               </span>
+              {stale && data?.analysisStatus === 'AI_ANALYZING' && (
+                <span className="text-xs text-yellow-700">No updates detected — retrying soon…</span>
+              )}
               {(data?.failedStage || data?.analysis?.failedStage) && (
                 <span className="text-xs text-gray-600">Failed Stage: {data.failedStage || data?.analysis?.failedStage}</span>
               )}

@@ -1,13 +1,120 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 import { JenkinsStatusProvider } from './context/JenkinsStatusContext.jsx';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { getSocket } from './services/socket.js';
+import { qk } from './services/queries.js';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 10000,
+      refetchOnWindowFocus: false,
+      retry: false,
+    },
+  },
+});
+
+function Root() {
+  useEffect(() => {
+    const socket = getSocket();
+    // One-time auto-refresh guard: if previous run set completion flag, clear it now
+    if (sessionStorage.getItem('aiCompleted') === 'true') {
+      sessionStorage.removeItem('aiCompleted');
+    }
+    const onReconnectGeneric = () => {
+      // Resync on socket reconnect
+      queryClient.invalidateQueries({ queryKey: qk.latest });
+    };
+    const onBuildNew = (payload) => {
+      queryClient.invalidateQueries({ queryKey: qk.latest });
+      const n = Number(payload?.buildNumber);
+      if (Number.isFinite(n) && n > 0) {
+        queryClient.invalidateQueries({ queryKey: qk.build(n) });
+        queryClient.invalidateQueries({ queryKey: qk.analysis(n) });
+      }
+    };
+    const onBuildCompleted = (payload) => {
+      const n = Number(payload?.buildNumber);
+      if (Number.isFinite(n) && n > 0) {
+        queryClient.invalidateQueries({ queryKey: qk.build(n) });
+        queryClient.invalidateQueries({ queryKey: qk.analysis(n) });
+      }
+    };
+    const onLogsComplete = (payload) => {
+      const n = Number(payload?.buildNumber);
+      if (Number.isFinite(n) && n > 0) {
+        queryClient.setQueryData(qk.build(n), (prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            logs: String(payload?.logs || prev.logs || ''),
+            logsFinal: true,
+            buildStatus: 'COMPLETED',
+          };
+        });
+      }
+    };
+    const onAnalysisProgress = (payload) => {
+      const n = Number(payload?.buildNumber);
+      const step = String(payload?.stage || payload?.status || 'AI_ANALYZING');
+      if (Number.isFinite(n) && n > 0) {
+        queryClient.setQueryData(qk.analysis(n), step);
+        queryClient.invalidateQueries({ queryKey: qk.analysis(n) });
+      }
+    };
+    const onAnalysisCompleted = (payload) => {
+      const n = Number(payload?.buildNumber);
+      const status = String(payload?.status || '').toUpperCase();
+      if (Number.isFinite(n) && n > 0) {
+        // Invalidate queries to refresh cache regardless
+        queryClient.setQueryData(qk.analysis(n), 'COMPLETED');
+        queryClient.invalidateQueries({ queryKey: qk.analysis(n) });
+        queryClient.invalidateQueries({ queryKey: qk.build(n) });
+      }
+      // One-time auto-refresh after AI completion to guarantee UI sync
+      if (status === 'COMPLETED') {
+        const alreadySet = sessionStorage.getItem('aiCompleted') === 'true';
+        if (!alreadySet) {
+          sessionStorage.setItem('aiCompleted', 'true');
+          window.location.reload();
+        }
+      }
+    };
+    socket.on('build:new', onBuildNew);
+    socket.on('build:completed', onBuildCompleted);
+    socket.on('logs:complete', onLogsComplete);
+    socket.on('logs:completed', onLogsComplete);
+    socket.on('analysis:progress', onAnalysisProgress);
+    socket.on('analysis:completed', onAnalysisCompleted);
+    socket.on('analysis:complete', onAnalysisCompleted);
+    socket.on('connect', onReconnectGeneric);
+    socket.on('reconnect', onReconnectGeneric);
+    return () => {
+      socket.off('build:new', onBuildNew);
+      socket.off('build:completed', onBuildCompleted);
+      socket.off('logs:complete', onLogsComplete);
+      socket.off('logs:completed', onLogsComplete);
+      socket.off('analysis:progress', onAnalysisProgress);
+      socket.off('analysis:completed', onAnalysisCompleted);
+      socket.off('analysis:complete', onAnalysisCompleted);
+      socket.off('connect', onReconnectGeneric);
+      socket.off('reconnect', onReconnectGeneric);
+    };
+  }, []);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <JenkinsStatusProvider>
+        <App />
+      </JenkinsStatusProvider>
+    </QueryClientProvider>
+  );
+}
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <JenkinsStatusProvider>
-      <App />
-    </JenkinsStatusProvider>
+    <Root />
   </React.StrictMode>
 );
