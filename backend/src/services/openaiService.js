@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { cleanJenkinsLogs } from './logSanitizer.js';
 import PipelineAIAnalysis from '../models/PipelineAIAnalysis.js';
+import PipelineAnalysisAudit from '../models/PipelineAnalysisAudit.js';
 // Progress is now persisted in MongoDB via PipelineAIAnalysis; in-memory helper removed for API reads.
 
 function getConfig() {
@@ -106,6 +107,36 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   if (!rawDoc) throw new Error('rawDoc is required');
   // Only analyze failed builds; skip SUCCESS to conserve resources
   if (rawDoc.status !== 'FAILURE') {
+    // Emit skipped for frontend and mark NOT_REQUIRED; persist AI doc with SKIPPED
+    const { io, room } = options || {};
+    io?.to(room || '').emit('analysis:skipped', { buildNumber: rawDoc.buildNumber, reason: 'NOT_REQUIRED' });
+    try {
+      await rawDoc.updateOne({ $set: { analysisStatus: 'NOT_REQUIRED' } });
+      await PipelineAIAnalysis.findOneAndUpdate(
+        { rawLogRef: rawDoc._id, jobName: rawDoc.jobName, buildNumber: rawDoc.buildNumber },
+        {
+          $setOnInsert: {
+            analysisSource: 'OPENAI_GPT',
+            aiModel: getConfig().model,
+            analysisVersion: 'v1',
+            generatedAt: new Date(),
+            finalResult: rawDoc.status || 'SUCCESS',
+          },
+          $set: {
+            analysisStatus: 'SKIPPED',
+            analysisRunStatus: 'COMPLETED',
+            analysisStep: 'COMPLETED',
+            confidenceScore: null,
+            failedStage: null,
+            detectedError: null,
+            humanSummary: null,
+            suggestedFix: null,
+            technicalRecommendation: null,
+          },
+        },
+        { new: true, upsert: true }
+      );
+    } catch {}
     return { buildNumber: rawDoc.buildNumber, aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' } };
   }
   const { io, room } = options || {};
@@ -113,21 +144,39 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
     if (io)
       io.to(room || '').emit('analysis:progress', {
         buildNumber: rawDoc.buildNumber,
-        status: 'ANALYSIS_IN_PROGRESS',
+        status: stage,
         stage,
         message,
       });
   };
-  const emitComplete = (analysis) => {
+  const emitStarted = () => {
     if (io)
-      io.to(room || '').emit('analysis:complete', {
+      io.to(room || '').emit('analysis:started', {
         buildNumber: rawDoc.buildNumber,
-        status: 'READY',
+      });
+  };
+  const emitComplete = (analysis) => {
+    if (io) {
+      const payload = {
+        buildNumber: rawDoc.buildNumber,
+        status: 'COMPLETED',
+        // Backward-compatible top-level fields
         humanSummary: analysis?.humanSummary ?? null,
         suggestedFix: analysis?.suggestedFix ?? null,
         technicalRecommendation: analysis?.technicalRecommendation ?? null,
         confidenceScore: typeof analysis?.confidenceScore === 'number' ? analysis.confidenceScore : null,
-      });
+        // New nested analysis object for consumers expecting a single blob
+        analysis: {
+          humanSummary: analysis?.humanSummary ?? null,
+          suggestedFix: analysis?.suggestedFix ?? null,
+          technicalRecommendation: analysis?.technicalRecommendation ?? null,
+          confidenceScore: typeof analysis?.confidenceScore === 'number' ? analysis.confidenceScore : null,
+        },
+      };
+      // Emit both for compatibility; prefer 'analysis:complete' per spec
+      io.to(room || '').emit('analysis:complete', payload);
+      io.to(room || '').emit('analysis:completed', payload);
+    }
   };
 
   // Upsert initial analysis document with IN_PROGRESS and FETCHING_LOGS
@@ -141,9 +190,11 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
         aiModel: model,
         analysisVersion: 'v1',
         generatedAt: new Date(),
+        finalResult: rawDoc.status || 'FAILURE',
       },
       $set: {
-        analysisStatus: 'ANALYSIS_IN_PROGRESS',
+        analysisStatus: 'FETCHING_LOGS',
+        analysisRunStatus: 'PENDING',
         analysisStep: 'FETCHING_LOGS',
         failedStage: null,
         detectedError: null,
@@ -159,21 +210,26 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
 
   // CLEANING_LOGS
   console.log('[AI] Step → CLEANING_LOGS');
+  emitStarted();
   emitProgress('FILTERING_ERRORS', 'Cleaning logs and filtering errors');
-  aiDoc.analysisStep = 'CLEANING_LOGS';
+  aiDoc.analysisStatus = 'FILTERING_ERRORS';
+  aiDoc.analysisRunStatus = 'RUNNING';
+  aiDoc.analysisStep = 'FILTERING_ERRORS';
   await aiDoc.save();
   const cleaned = cleanJenkinsLogs(rawDoc.rawLogs || '');
 
   // CALLING_OPENAI
   console.log('[AI] Step → CALLING_OPENAI');
   emitProgress('AI_ANALYZING', 'Calling AI model for analysis');
-  aiDoc.analysisStep = 'CALLING_OPENAI';
+  aiDoc.analysisStatus = 'AI_ANALYZING';
+  aiDoc.analysisStep = 'AI_ANALYZING';
   await aiDoc.save();
   let json;
   try {
     json = await analyzeCleanedLogsStrict(cleaned);
   } catch (err) {
     console.error('[AI] OpenAI call failed:', err?.message || err);
+    aiDoc.analysisStatus = 'FAILED';
     aiDoc.analysisStep = 'FAILED';
     await aiDoc.save();
     throw err;
@@ -182,7 +238,8 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   // SAVING_RESULT
   console.log('[AI] Step → SAVING_RESULT');
   emitProgress('STORING_RESULTS', 'Storing analysis results in database');
-  aiDoc.analysisStep = 'SAVING_RESULT';
+  aiDoc.analysisStatus = 'STORING_RESULTS';
+  aiDoc.analysisStep = 'STORING_RESULTS';
   aiDoc.failedStage = json.failedStage ?? null;
   aiDoc.detectedError = json.detectedError ?? null;
   aiDoc.humanSummary = json.humanSummary ?? null;
@@ -192,12 +249,29 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   await aiDoc.save();
 
   // READY
-  console.log(`[AI] Step → READY (build #${rawDoc.buildNumber})`);
-  aiDoc.analysisStatus = 'READY';
-  aiDoc.analysisStep = 'READY';
+  console.log(`[AI] Step → COMPLETED (build #${rawDoc.buildNumber})`);
+  aiDoc.analysisStatus = 'COMPLETED';
+  aiDoc.analysisRunStatus = 'COMPLETED';
+  aiDoc.analysisStep = 'COMPLETED';
   await aiDoc.save();
   emitProgress('COMPLETED', 'Analysis completed');
   emitComplete(aiDoc.toObject());
+  // Record audit so server restarts do not retrigger AI
+  try {
+    await PipelineAnalysisAudit.findOneAndUpdate(
+      { jobName: rawDoc.jobName, buildNumber: rawDoc.buildNumber },
+      { $setOnInsert: { analyzedAt: new Date() }, $set: { analysisStatus: 'COMPLETED' } },
+      { upsert: true, new: true }
+    );
+    // Update raw build doc summary
+    await rawDoc.updateOne({
+      $set: {
+        analysisStatus: 'COMPLETED',
+        analyzedAt: new Date(),
+        confidenceScore: typeof aiDoc.confidenceScore === 'number' ? aiDoc.confidenceScore : null,
+      },
+    });
+  } catch {}
   return aiDoc.toObject();
 }
 

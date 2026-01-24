@@ -8,7 +8,8 @@ import app from './app.js';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import mongoose from 'mongoose';
-import { initJenkinsPolling, setSocketIO } from './services/jenkinsService.js';
+import { initJenkinsPolling, setSocketIO as setJenkinsIO } from './services/jenkinsService.js';
+import { setSocketIO as setLogStreamIO, watchBuildLogs, isWatching } from './services/logStreamingService.js';
 
 // Default to IPv4 loopback to avoid ::1 issues on Windows
 const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/dcpvas';
@@ -41,11 +42,24 @@ const io = new SocketIOServer(server, {
 
 // Expose io to the rest of the app (controllers/services)
 app.set('io', io);
-setSocketIO(io);
+setJenkinsIO(io);
+setLogStreamIO(io);
 
 io.on('connection', (socket) => {
   // Minimal connection log; namespaces/rooms can be added later
   console.log('Socket connected:', socket.id);
+  // Allow clients to request log streaming for a specific build
+  socket.on('logs:watch', async (payload) => {
+    try {
+      const n = Number(payload?.buildNumber);
+      if (!Number.isFinite(n) || n <= 0) return;
+      if (!isWatching(n)) {
+        await watchBuildLogs(n);
+      }
+    } catch (e) {
+      // Ignore; client can retry
+    }
+  });
   socket.on('disconnect', () => {
     console.log('Socket disconnected:', socket.id);
   });
@@ -59,8 +73,8 @@ server.listen(port, () => {
     hasUser: !!process.env.JENKINS_USER,
     hasToken: !!process.env.JENKINS_TOKEN,
   });
-  // Start Live Jenkins polling / background watcher (10s interval)
-  initJenkinsPolling(10000);
+  // Start Live Jenkins polling / background watcher (~2.5s interval)
+  initJenkinsPolling(2500);
   // Attempt initial DB connection
   connectWithRetry();
 });

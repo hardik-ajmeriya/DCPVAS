@@ -147,3 +147,30 @@ See the repository for the mandated monorepo structure under `dcpvas/` with `bac
 - `build:new` — `{ jobName, buildNumber }`
 
 Frontend subscribes using `socket.io-client` (see `frontend/src/services/socket.js`).
+
+## AI Analysis Completion Handling (Auto-Refresh Strategy)
+
+To ensure a consistent, production-grade user experience, the application performs a single controlled auto-refresh once AI analysis has fully completed and the final output is persisted. This strategy guarantees that the UI reflects the definitive analysis results without relying on manual page reloads.
+
+### Why auto-refresh is required
+- Asynchronous Jenkins logs: Console output is ingested incrementally and finalized server-side.
+- Long-running AI analysis: The backend performs analysis after a pipeline failure and persists results when complete.
+- Frontend state synchronization: Under concurrent timing, the UI may occasionally miss the final state transition; a deterministic refresh removes this edge.
+
+### How the auto-refresh works
+- Backend emits `analysis:completed` after persisting the final AI output.
+- Frontend listens via Socket.IO and, upon receiving `analysis:completed`, triggers a one-time page refresh.
+- A `sessionStorage` flag prevents any reload loop and is cleared on app startup.
+- The refresh occurs only after the backend has saved the final results; REST endpoints then return `finalResult` immediately.
+
+### Benefits of this approach
+- Eliminates manual refresh for end users.
+- Guarantees final AI results are visible promptly.
+- Improves UX consistency across varying network and browser conditions.
+- Aligns with real-world CI/CD dashboards that reconcile final states deterministically.
+
+### Safety considerations
+- Reload happens exactly once per completed analysis.
+- No impact during in-progress analysis; refresh is deferred until completion.
+- Loop prevention via `sessionStorage`; no infinite refresh behavior.
+- Operates only after final AI output is stored server-side.
