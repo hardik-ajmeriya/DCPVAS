@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 // Default to backend dev port 4000; override via VITE_API_BASE_URL if needed
+// IMPORTANT: Backend mounts routes under '/api' (see backend/src/app.js)
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const api = axios.create({
   baseURL: apiBase,
@@ -9,7 +10,9 @@ const api = axios.create({
 export async function getJenkinsSettings() {
   const { data } = await api.get('/settings/jenkins');
   // Expected shape: { jenkinsUrl, jobName, username, isConnected, lastVerifiedAt }
-  return data || {};
+  return data || {
+    
+  };
 }
 
 export async function getLatestPipeline() {
@@ -34,8 +37,17 @@ export async function getPipelineStages() {
 }
 
 export async function getPipelineBuild(number) {
-  const { data } = await api.get(`/pipeline/build/${number}`);
-  return data; // normalized run with logs and stages
+  try {
+    const { data } = await api.get(`/pipeline/build/${number}`);
+    return data; // normalized run with logs and stages
+  } catch (err) {
+    const status = err?.response?.status;
+    if (status === 404) {
+      // Build not persisted yet; treat as not ready without throwing
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function getRawLogs(number) {
@@ -53,4 +65,11 @@ export async function getExecution(id) {
   return data;
 }
 
-export default { getJenkinsSettings, getLatestPipeline, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs };
+// Fetch final analysis for a given build number
+export async function getPipelineAnalysis(number) {
+  if (!number) throw new Error('build number is required');
+  const { data } = await api.get(`/pipeline/analysis/${number}`);
+  return data; // expected: full analysis object from MongoDB
+}
+
+export default { getJenkinsSettings, getLatestPipeline, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis };

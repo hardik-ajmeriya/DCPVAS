@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getRawLogs } from '../services/api.js';
+import { getRawLogs, getPipelineAnalysis } from '../services/api.js';
 import { requestLogStream, subscribeLogs } from '../services/socket.js';
 import { useAnalysisStatusQuery } from '../services/queries.js';
 
@@ -81,14 +81,16 @@ function mapStepToLabel(step) {
 export default function FailureAnalysis({ run }) {
   const [tab, setTab] = useState('Human Summary');
   const [logs, setLogs] = useState(null);
-  const analysis = run?.analysis || run || {};
+  const [localStatus, setLocalStatus] = useState(null);
+  const [analysisState, setAnalysisState] = useState(null);
+  const analysis = analysisState || run?.analysis || run || {};
   const buildNumber = run?.buildNumber;
   const status = run?.analysisStatus;
   const buildRunning = run?.buildStatus === 'BUILDING';
   const { data: analysisStatusFromQuery } = useAnalysisStatusQuery(buildNumber);
   const stepFromQuery = typeof analysisStatusFromQuery === 'object' ? analysisStatusFromQuery?.status : analysisStatusFromQuery;
   const finalResultPresent = typeof analysisStatusFromQuery === 'object' ? (analysisStatusFromQuery?.finalResult != null) : (run?.finalResult != null);
-  const resultReady = Boolean(finalResultPresent);
+  const resultReady = Boolean(finalResultPresent || analysisState);
 
   const aiSkipped =
     run?.status === 'SUCCESS' ||
@@ -112,6 +114,45 @@ export default function FailureAnalysis({ run }) {
   useEffect(() => {
     setLogs(run?.logs ?? null);
   }, [buildNumber, run?.logs]);
+
+  /* Fetch analysis once when status becomes COMPLETED */
+  useEffect(() => {
+    if (status !== 'COMPLETED') return;
+    if (!buildNumber) return;
+    // Avoid refetch if already loaded
+    if (analysisState) return;
+    (async () => {
+      try {
+        const data = await getPipelineAnalysis(buildNumber);
+        setAnalysisState(data || null);
+        setLocalStatus('COMPLETED');
+      } catch (err) {
+        console.error('Failed to load analysis', err);
+      }
+    })();
+  }, [status, buildNumber]);
+
+  /* Also fetch when React Query-derived status reports COMPLETED */
+  useEffect(() => {
+    if (stepFromQuery !== 'COMPLETED') return;
+    if (!buildNumber) return;
+    if (analysisState) return;
+    (async () => {
+      try {
+        const data = await getPipelineAnalysis(buildNumber);
+        setAnalysisState(data || null);
+        setLocalStatus('COMPLETED');
+      } catch (err) {
+        console.error('Failed to load analysis (query status)', err);
+      }
+    })();
+  }, [stepFromQuery, buildNumber]);
+
+  /* Reset local analysis when switching builds */
+  useEffect(() => {
+    setAnalysisState(null);
+    setLocalStatus(null);
+  }, [buildNumber]);
 
   // Progress bar driven only by analysis status from React Query
 
@@ -147,7 +188,7 @@ export default function FailureAnalysis({ run }) {
         <SectionWrapper
           title="Human Summary"
           buildRunning={buildRunning}
-          status={status}
+          status={localStatus || status}
           step={stepFromQuery || status}
           resultReady={resultReady}
         >
@@ -198,7 +239,7 @@ export default function FailureAnalysis({ run }) {
         <SectionWrapper
           title="Suggested Fix"
           buildRunning={buildRunning}
-          status={status}
+          status={localStatus || status}
           step={stepFromQuery || status}
           resultReady={resultReady}
         >
@@ -242,7 +283,7 @@ export default function FailureAnalysis({ run }) {
         <SectionWrapper
           title="Technical Recommendation"
           buildRunning={buildRunning}
-          status={status}
+          status={localStatus || status}
           step={stepFromQuery || status}
           resultReady={resultReady}
           dark
@@ -321,8 +362,8 @@ function SectionWrapper({ title, buildRunning, status, step, resultReady, childr
         </div>
       )}
 
-      {/* Render results only when completed and data is ready */}
-      {!buildRunning && status === 'COMPLETED' && resultReady && children}
+      {/* Render results when data is ready (even if status label isn't updated yet) */}
+      {!buildRunning && resultReady && children}
       {!buildRunning && status === 'FAILED' && children}
     </div>
   );

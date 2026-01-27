@@ -265,3 +265,34 @@ export async function reanalyzePipelineBuild(req, res) {
     return res.status(502).json({ error: "Failed to re-run analysis" });
   }
 }
+
+// Fetch final analysis document for a build number
+export async function getAnalysisStatus(req, res) {
+  const { number } = req.params;
+  if (!number || Number.isNaN(Number(number))) {
+    return res.status(400).json({ error: "Invalid build number" });
+  }
+  try {
+    const combined = await getBuildWithAnalysis(Number(number));
+    if (!combined) return res.status(404).json({ error: "Build not found" });
+    const { ai } = combined;
+    if (!ai) return res.status(404).json({ error: "Analysis not found" });
+    // Return the AI analysis document as-is (lean object)
+    return res.json({
+      buildNumber: ai.buildNumber,
+      status: ai.analysisStatus,
+      failedStage: ai.failedStage ?? null,
+      detectedError: ai.detectedError ?? null,
+      humanSummary: ai.humanSummary ?? null,
+      suggestedFix: ai.suggestedFix ?? null,
+      technicalRecommendation: ai.technicalRecommendation ?? null,
+      confidenceScore: typeof ai.confidenceScore === 'number' ? ai.confidenceScore : null,
+      finalResult: ai.finalResult ?? null,
+      generatedAt: ai.generatedAt,
+      jobName: ai.jobName,
+    });
+  } catch (e) {
+    console.error("Failed to fetch analysis:", e?.message || e);
+    return res.status(502).json({ error: "Failed to fetch analysis" });
+  }
+}
