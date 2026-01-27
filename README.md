@@ -153,24 +153,41 @@ Frontend subscribes using `socket.io-client` (see `frontend/src/services/socket.
 To ensure a consistent, production-grade user experience, the application performs a single controlled auto-refresh once AI analysis has fully completed and the final output is persisted. This strategy guarantees that the UI reflects the definitive analysis results without relying on manual page reloads.
 
 ### Why auto-refresh is required
-- Asynchronous Jenkins logs: Console output is ingested incrementally and finalized server-side.
-- Long-running AI analysis: The backend performs analysis after a pipeline failure and persists results when complete.
-- Frontend state synchronization: Under concurrent timing, the UI may occasionally miss the final state transition; a deterministic refresh removes this edge.
 
 ### How the auto-refresh works
-- Backend emits `analysis:completed` after persisting the final AI output.
-- Frontend listens via Socket.IO and, upon receiving `analysis:completed`, triggers a one-time page refresh.
-- A `sessionStorage` flag prevents any reload loop and is cleared on app startup.
-- The refresh occurs only after the backend has saved the final results; REST endpoints then return `finalResult` immediately.
 
 ### Benefits of this approach
-- Eliminates manual refresh for end users.
-- Guarantees final AI results are visible promptly.
-- Improves UX consistency across varying network and browser conditions.
-- Aligns with real-world CI/CD dashboards that reconcile final states deterministically.
 
 ### Safety considerations
-- Reload happens exactly once per completed analysis.
-- No impact during in-progress analysis; refresh is deferred until completion.
-- Loop prevention via `sessionStorage`; no infinite refresh behavior.
-- Operates only after final AI output is stored server-side.
+
+## Project Overview
+
+DCPVAS (DevOps CI/CD Pipeline Visualizer with AI-Assisted Failure Analysis) helps engineering teams quickly understand why Jenkins builds fail. It ingests real Jenkins console logs, performs structured AI analysis, and presents actionable insights — human summary, suggested fixes, and technical recommendations — alongside pipeline stages and history. The goal is to reduce mean time to resolution by turning noisy logs into clear, developer-focused guidance, while keeping the UI responsive and simple.
+
+## High-Level Architecture
+
+- Jenkins → Backend → MongoDB → Frontend
+- Backend polls Jenkins (read-only), sanitizes logs, and runs AI analysis; results are persisted in MongoDB.
+- Frontend consumes REST endpoints for builds and analysis, and uses socket-based events for a real-time feel where appropriate. No SSE is required.
+- Design emphasizes a synchronous UX: when analysis completes, the frontend fetches final data and renders immediately.
+
+## Execution Flow (Simplified)
+
+1. Build start: Jenkins triggers a pipeline run.
+2. Log fetching: Backend ingests and cleans console logs.
+3. AI analysis: Backend computes failure insights from logs.
+4. Result persistence: Final analysis is stored in MongoDB.
+5. UI rendering: Frontend fetches analysis and updates the view without manual refresh.
+
+## Key Engineering Decisions
+
+- Explicit frontend state management: Components update local state when analysis completes, ensuring immediate rendering of final data.
+- Guarding premature API calls: Early fetches that can return 404 are treated as "not ready" to avoid noisy console errors and preserve UX.
+- Handling transient 404s safely: Defensive logic returns `null` on 404 for new builds, allowing queries to refetch cleanly once the backend persists the run.
+- URL alignment: Frontend base URL matches backend mount path (`/api`), preventing route mismatch and "Cannot GET" errors.
+
+## Known Limitations / Edge Cases
+
+- Temporary 404 during new build initialization: Expected when the frontend queries before the backend has persisted the run.
+- Defensive frontend handling: Queries return `null` for 404 and continue normally; progress flow remains unchanged.
+- Real-time feeling without SSE: Socket events are used selectively (e.g., log streaming), while final analysis retrieval is performed via REST for simplicity.
