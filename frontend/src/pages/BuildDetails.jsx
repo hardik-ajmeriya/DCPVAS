@@ -4,6 +4,7 @@ import PipelineGraph from '../components/PipelineGraph.jsx';
 import { subscribeBuilds, subscribeConnection } from '../services/socket.js';
 import { useBuildDetailsQuery, useLatestBuildQuery, useAnalysisStatusQuery } from '../services/queries.js';
 import { useQueryClient } from '@tanstack/react-query';
+import { getPipelineAnalysis } from '../services/api.js';
 
 export default function BuildDetails({ buildNumber }) {
   const [data, setData] = useState(null);
@@ -52,6 +53,30 @@ export default function BuildDetails({ buildNumber }) {
       }
     }
   }, [analysisStatusObj, currentBuildNumber]);
+
+  // Simple fetch: when analysis is completed, get final analysis and store in state
+  useEffect(() => {
+    const status = data?.analysisStatus;
+    const buildNo = currentBuildNumber;
+    if (!buildNo) return;
+    if (status !== 'COMPLETED') return;
+    // Avoid refetching if we already have a final result
+    if (data?.finalResult != null && data?.analysis) return;
+    (async () => {
+      try {
+        const analysis = await getPipelineAnalysis(buildNo);
+        setData((prev) => ({
+          ...(prev || {}),
+          analysis: analysis || prev?.analysis || {},
+          // Mark final result present so UI renders immediately
+          finalResult: true,
+        }));
+      } catch (err) {
+        // Keep UI responsive; optionally set error state
+        console.error('Failed to fetch pipeline analysis', err);
+      }
+    })();
+  }, [data?.analysisStatus, currentBuildNumber]);
 
   // Fallback: if no events for 20s during analysis, show retry message
   const [stale, setStale] = useState(false);
