@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
 import { getJenkinsSettings, saveJenkinsSettings, testJenkinsConnection } from '../services/settingsService.js';
+import { useTheme } from '../context/ThemeContext.jsx';
 
 export default function Settings({ mode = 'Rule-Based', onModeChange }) {
   const { setStatus, refresh } = useJenkinsStatus();
+  const { theme, toggleTheme, setTheme } = useTheme();
   const [jenkinsUrl, setJenkinsUrl] = useState('');
   const [jobName, setJobName] = useState('');
   const [username, setUsername] = useState('');
@@ -186,6 +188,34 @@ export default function Settings({ mode = 'Rule-Based', onModeChange }) {
             </label>
           </div>
           <div className="text-xs text-gray-500">AI output is labeled as suggested.</div>
+        </div>
+
+        <div className="bg-white p-4 rounded shadow space-y-3">
+          <div className="font-medium">Theme</div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="theme"
+                checked={theme === 'light'}
+                onChange={() => setTheme('light')}
+              />
+              Light
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="theme"
+                checked={theme === 'dark'}
+                onChange={() => setTheme('dark')}
+              />
+              Dark
+            </label>
+            <button type="button" className="px-3 py-1 rounded border" onClick={toggleTheme}>
+              Toggle
+            </button>
+          </div>
+          <div className="text-xs text-gray-500">Current: {theme?.toUpperCase?.() || 'LIGHT'}. Theme is saved and applies instantly.</div>
         </div>
       </div>
     </div>

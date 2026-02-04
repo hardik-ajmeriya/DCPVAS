@@ -4,4 +4,99 @@
 
 /* Basic layout helpers */
 html, body, #root { height: 100%; }
-body { @apply bg-gray-50 text-gray-900; }
+
+/* Theme variables */
+:root.theme-light {
+	--bg-primary: #ffffff;
+	--bg-secondary: #f9fafb;
+	--text-primary: #111827;
+	--text-secondary: #4b5563;
+	--border-color: #e5e7eb;
+	--accent: #2563eb;
+	--log-bg: #0f172a;
+	--log-text: #e5e7eb;
+	--hover-surface: #eef2f7; /* subtle light hover */
+	--nav-surface: rgba(255, 255, 255, 0.65);
+}
+
+:root.theme-dark {
+	--bg-primary: #0b1220;
+	--bg-secondary: #111827;
+	--text-primary: #e5e7eb;
+	--text-secondary: #9ca3af;
+	--border-color: #1f2937;
+	--accent: #3b82f6;
+	--log-bg: #020617;
+	--log-text: #e5e7eb;
+	--hover-surface: #162033; /* subtle dark hover */
+	--nav-surface: rgba(11, 18, 32, 0.65);
+}
+
+/* Apply theme to page */
+body {
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+}
+
+/* Safe overrides to align existing utility usage with theme variables */
+.bg-white { background-color: var(--bg-primary) !important; }
+.bg-gray-50 { background-color: var(--bg-secondary) !important; }
+.bg-gray-100 { background-color: var(--bg-secondary) !important; }
+.text-gray-700 { color: var(--text-primary) !important; opacity: 0.9; }
+.text-gray-800 { color: var(--text-primary) !important; }
+.text-gray-600 { color: var(--text-secondary) !important; }
+.text-gray-500 { color: var(--text-secondary) !important; opacity: 0.8; }
+.border-gray-300 { border-color: var(--border-color) !important; }
+.border-blue-300 { border-color: var(--accent) !important; opacity: 0.6; }
+
+/* Accent helpers */
+.text-accent { color: var(--accent); }
+.bg-accent { background-color: var(--accent); }
+.border-accent { border-color: var(--accent); }
+
+/* Log viewer: high contrast, monospace */
+.log-viewer {
+	background: var(--log-bg);
+	color: var(--log-text);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Theme-aware surfaces for hover/active (sidebar etc.) */
+.hover-surface:hover { background-color: var(--hover-surface) !important; }
+.active-surface { background-color: var(--hover-surface) !important; box-shadow: inset 0 0 0 1px var(--border-color); }
+
+/* Navbar: sticky with translucent blur */
+.nav-blur {
+	position: sticky;
+	top: 0;
+	z-index: 50;
+	backdrop-filter: saturate(180%) blur(12px);
+	background-color: var(--nav-surface);
+	border-bottom: 1px solid var(--border-color);
+}
+
+/* Form controls: keep contrast in dark/light modes */
+input:not([type="radio"]):not([type="checkbox"]),
+textarea,
+select {
+	background: var(--bg-primary);
+	color: var(--text-primary);
+	border: 1px solid var(--border-color);
+	caret-color: var(--text-primary);
+}
+input::placeholder,
+textarea::placeholder {
+	color: var(--text-secondary);
+	opacity: 0.8;
+}
+input:not([type="radio"]):not([type="checkbox"]):hover,
+textarea:hover,
+select:hover {
+	border-color: var(--accent);
+}
+input:not([type="radio"]):not([type="checkbox"]):focus,
+textarea:focus,
+select:focus {
+	outline: none;
+	border-color: var(--accent);
+}
