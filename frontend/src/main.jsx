@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 import { JenkinsStatusProvider } from './context/JenkinsStatusContext.jsx';
+import { ThemeProvider } from './context/ThemeContext.jsx';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getSocket } from './services/socket.js';
 import { qk } from './services/queries.js';
@@ -106,9 +107,11 @@ function Root() {
   }, []);
   return (
     <QueryClientProvider client={queryClient}>
-      <JenkinsStatusProvider>
-        <App />
-      </JenkinsStatusProvider>
+      <ThemeProvider>
+        <JenkinsStatusProvider>
+          <App />
+        </JenkinsStatusProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

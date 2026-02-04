@@ -28,7 +28,7 @@ export default function Navbar({ currentTab, onSelect }) {
   const statusIcon = isConnected ? '✓' : (warning ? '!' : '●');
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-white shadow">
+    <div className="nav-blur flex items-center justify-between px-4 py-3">
       <div className="text-xl font-semibold">DCPVAS</div>
       <div className="flex items-center gap-3">
         <span
@@ -43,7 +43,7 @@ export default function Navbar({ currentTab, onSelect }) {
         {tabs.map(({ key, icon: Icon }) => (
           <button
             key={key}
-            className={`px-3 py-2 rounded flex items-center gap-2 ${currentTab === key ? 'bg-neutral text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+            className={`px-3 py-2 rounded flex items-center gap-2 ${currentTab === key ? 'bg-neutral text-white' : 'hover-surface'}`}
             onClick={() => onSelect(key)}
             aria-label={key}
           >

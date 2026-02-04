@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* Tailwind v4 design tokens for the dark SaaS theme */
+@theme {
+	--color-bg: #0B0E14;
+	--color-surface: #121826;
+	--color-primary: #7C5CFF;
+	--color-accent: #00E5FF;
+	--color-text: #E6E8EB;
+	--color-muted: #9BA3AF;
+	--color-border: #1F2937;
+}
+
+/* Optional: ensure full-height layout renders dark immediately */
+html, body, #root { height: 100%; }

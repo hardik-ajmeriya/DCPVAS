@@ -10,71 +10,73 @@ const DEFAULT_TABS = [
   'Raw Logs',
 ];
 
-/* -------------------- Progress Bar -------------------- */
+/* -------------------- Progress Bar (Amazon-style Stepper) -------------------- */
 function ProgressBar({ step }) {
-  const percent = mapStepToPercent(step);
-  const label = mapStepToLabel(step);
+  // UI-only configuration (do not modify status values)
+  const STEPS = [
+    { key: 'FETCHING_LOGS', label: 'Fetching Logs' },
+    { key: 'FILTERING_ERRORS', label: 'Filtering Errors' },
+    { key: 'AI_ANALYZING', label: 'AI Analyzing' },
+    { key: 'STORING_RESULTS', label: 'Storing Results' },
+    { key: 'COMPLETED', label: 'Completed' },
+  ];
+
+  // Determine active index from provided status; default to first when in waiting/unknown
+  let currentIndex = STEPS.findIndex((s) => s.key === step);
+  if (currentIndex === -1) {
+    // Treat pre-analysis or unknown states as the first step (UI-only)
+    currentIndex = 0;
+  }
+  const completedAll = step === 'COMPLETED' || currentIndex === STEPS.length - 1;
 
   return (
-    <div className="mt-3">
-      <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
-        <div
-          className="bg-blue-600 h-2 transition-all duration-500"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <div className="text-xs text-gray-600 mt-1 flex justify-between">
-        <span>{label}</span>
-        <span>{percent}%</span>
+    <div className="mt-3 select-none flex justify-end">
+      {/* Compact horizontal stepper, right-aligned */}
+      <div className="flex items-center max-w-[420px] w-full">
+        {STEPS.map((s, idx) => {
+          const isCompleted = completedAll ? idx <= currentIndex : idx < currentIndex;
+          const isActive = !completedAll && idx === currentIndex;
+          return (
+            <div key={s.key} className="flex items-center w-full">
+              <div className="flex flex-col items-center">
+                <div
+                  className={[
+                    'w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-medium border',
+                    !isCompleted && !isActive ? 'bg-gray-100 text-gray-400 border-gray-300' : '',
+                  ].join(' ')}
+                  style={
+                    isCompleted
+                      ? { backgroundColor: 'var(--accent)', color: '#ffffff', borderColor: 'var(--accent)' }
+                      : isActive
+                        ? { backgroundColor: 'var(--bg-primary)', color: 'var(--accent)', borderColor: 'var(--accent)', borderWidth: '2px' }
+                        : undefined
+                  }
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={s.label}
+                  title={s.label}
+                >
+                  {isCompleted ? '✓' : ''}
+                </div>
+                <div
+                  className="hidden sm:block text-[10px] mt-1 whitespace-nowrap"
+                  style={{ color: isCompleted || isActive ? 'var(--accent)' : 'var(--text-secondary)' }}
+                >
+                  {s.label}
+                </div>
+              </div>
+              {idx !== STEPS.length - 1 && (
+                <div
+                  className="flex-1 h-[1px] mx-2"
+                  style={{ backgroundColor: idx < currentIndex ? 'var(--accent)' : 'var(--border-color)' }}
+                  aria-hidden
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
-}
-
-function mapStepToPercent(step) {
-  switch (step) {
-    case 'WAITING_FOR_BUILD':
-      return 10;
-    case 'WAITING_FOR_LOGS':
-      return 20;
-    case 'FETCHING_LOGS':
-      return 20;
-    case 'CLEANING_LOGS':
-      return 40;
-    case 'FILTERING_ERRORS':
-      return 40;
-    case 'AI_ANALYZING':
-      return 60;
-    case 'STORING_RESULTS':
-      return 80;
-    case 'COMPLETED':
-      return 100;
-    default:
-      return 0;
-  }
-}
-
-function mapStepToLabel(step) {
-  switch (step) {
-    case 'WAITING_FOR_BUILD':
-      return 'Waiting for pipeline to finish';
-    case 'WAITING_FOR_LOGS':
-      return 'Waiting for final logs';
-    case 'FETCHING_LOGS':
-      return 'Fetching logs';
-    case 'CLEANING_LOGS':
-      return 'Cleaning logs';
-    case 'FILTERING_ERRORS':
-      return 'Filtering errors';
-    case 'AI_ANALYZING':
-      return 'AI analyzing';
-    case 'STORING_RESULTS':
-      return 'Storing results';
-    case 'COMPLETED':
-      return 'Completed';
-    default:
-      return 'Idle';
-  }
 }
 
 /* -------------------- Main Component -------------------- */
@@ -92,6 +94,11 @@ export default function FailureAnalysis({ run }) {
   const finalResultPresent = typeof analysisStatusFromQuery === 'object' ? (analysisStatusFromQuery?.finalResult != null) : (run?.finalResult != null);
   const resultReady = Boolean(finalResultPresent || analysisState);
 
+  // Determine historical executions: completed pipeline or completed analysis
+  const pipelineCompleted = run?.status === 'SUCCESS' || run?.status === 'FAILURE' || run?.status === 'FAILED' || run?.buildStatus === 'COMPLETED';
+  const analysisCompleted = (localStatus || status) === 'COMPLETED' || stepFromQuery === 'COMPLETED';
+  const isHistorical = Boolean(pipelineCompleted || analysisCompleted);
+
   const aiSkipped =
     run?.status === 'SUCCESS' ||
     analysis?.skipped === true ||
@@ -99,16 +106,21 @@ export default function FailureAnalysis({ run }) {
 
   const tabs = aiSkipped ? ['Raw Logs'] : DEFAULT_TABS;
 
-  /* Auto tab switch */
+  /* Auto tab switch: prefer logs for historical runs to show data immediately */
   useEffect(() => {
     if (aiSkipped) {
+      setTab('Raw Logs');
+      return;
+    }
+    const hasLogs = String(run?.logs || logs || '').length > 0;
+    if (isHistorical && hasLogs) {
       setTab('Raw Logs');
       return;
     }
     if (status === 'COMPLETED') {
       setTab('Human Summary');
     }
-  }, [status, aiSkipped]);
+  }, [status, aiSkipped, isHistorical, run?.logs, logs]);
 
   /* Init logs if already present */
   useEffect(() => {
@@ -191,6 +203,7 @@ export default function FailureAnalysis({ run }) {
           status={localStatus || status}
           step={stepFromQuery || status}
           resultReady={resultReady}
+          isHistorical={isHistorical}
         >
           <>
             {analysis.humanSummary?.overview && (
@@ -242,6 +255,7 @@ export default function FailureAnalysis({ run }) {
           status={localStatus || status}
           step={stepFromQuery || status}
           resultReady={resultReady}
+          isHistorical={isHistorical}
         >
           <>
             {Array.isArray(analysis.suggestedFix?.immediateActions) && analysis.suggestedFix.immediateActions.length > 0 && (
@@ -287,6 +301,7 @@ export default function FailureAnalysis({ run }) {
           step={stepFromQuery || status}
           resultReady={resultReady}
           dark
+          isHistorical={isHistorical}
         >
           <>
             {Array.isArray(analysis.technicalRecommendation?.codeLevelActions) && analysis.technicalRecommendation.codeLevelActions.length > 0 && (
@@ -335,7 +350,7 @@ export default function FailureAnalysis({ run }) {
 }
 
 /* -------------------- Section Wrapper -------------------- */
-function SectionWrapper({ title, buildRunning, status, step, resultReady, children, dark }) {
+function SectionWrapper({ title, buildRunning, status, step, resultReady, children, dark, isHistorical }) {
   return (
     <div>
       <h3 className="font-semibold mb-2">{title}</h3>
@@ -352,8 +367,8 @@ function SectionWrapper({ title, buildRunning, status, step, resultReady, childr
         </div>
       )}
 
-      {/* Show progress whenever analysis is not completed OR result is not yet ready */}
-      {!buildRunning && step && (step !== 'FAILED') && ((step !== 'COMPLETED') || !resultReady) && (
+      {/* Show progress only for live executions */}
+      {!isHistorical && !buildRunning && step && (step !== 'FAILED') && ((step !== 'COMPLETED') || !resultReady) && (
         <div>
           <p className="text-sm text-gray-600">
             {step === 'STORING_RESULTS' || (step === 'COMPLETED' && !resultReady) ? 'Finalizing analysis…' : 'Analyzing logs…'}
@@ -362,9 +377,8 @@ function SectionWrapper({ title, buildRunning, status, step, resultReady, childr
         </div>
       )}
 
-      {/* Render results when data is ready (even if status label isn't updated yet) */}
-      {!buildRunning && resultReady && children}
-      {!buildRunning && status === 'FAILED' && children}
+      {/* Render results immediately for historical executions, or whenever data is ready */}
+      {!buildRunning && (isHistorical || resultReady || status === 'FAILED') && children}
     </div>
   );
 }
@@ -378,9 +392,13 @@ function RawLogs({ buildNumber, logs, setLogs, finalized }) {
 
   useEffect(() => {
     if (!buildNumber) return;
-
+    // If logs already exist or finalized, render immediately without streaming
+    const existing = String(logs || '').length > 0;
+    if (finalizedState || existing) {
+      setStreaming(false);
+      return;
+    }
     setStreaming(true);
-
     const unsubscribe = subscribeLogs(buildNumber, {
       onAppend: (chunk) => {
         setLogs((prev) => (prev ? prev + chunk : chunk));
@@ -398,7 +416,7 @@ function RawLogs({ buildNumber, logs, setLogs, finalized }) {
     });
 
     return () => unsubscribe();
-  }, [buildNumber]);
+  }, [buildNumber, finalizedState]);
 
   useEffect(() => {
     setLines(String(logs || '').split(/\r?\n/));
@@ -424,7 +442,7 @@ function RawLogs({ buildNumber, logs, setLogs, finalized }) {
   return (
     <div
       ref={containerRef}
-      className="bg-gray-900 p-3 rounded max-h-[600px] overflow-auto"
+      className="log-viewer p-3 rounded max-h-[600px] overflow-auto"
     >
       {streaming && !finalizedState && (
         <div className="text-xs text-blue-300 mb-2">
@@ -438,7 +456,7 @@ function RawLogs({ buildNumber, logs, setLogs, finalized }) {
       )}
       <div className="font-mono text-xs whitespace-pre">
         {lines.length === 0 ? (
-          <span className="text-gray-500">No logs available.</span>
+          <span className="text-gray-500">No logs available for this execution.</span>
         ) : (
           lines.map((line, i) => (
             <div key={i} className={colorize(line)}>

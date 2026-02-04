@@ -17,7 +17,7 @@ export default function Sidebar({ currentTab, onSelect }) {
           <button
             key={key}
             onClick={() => onSelect(key)}
-            className={`flex items-center gap-3 px-4 py-2 text-left hover:bg-gray-100 ${currentTab === key ? 'bg-gray-100' : ''}`}
+            className={`flex items-center gap-3 px-4 py-2 text-left hover-surface ${currentTab === key ? 'active-surface' : ''}`}
           >
             <Icon className="w-5 h-5" />
             <span>{key}</span>

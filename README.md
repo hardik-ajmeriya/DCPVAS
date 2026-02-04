@@ -109,6 +109,7 @@ Jenkins connectivity is validated via the Settings module before any pipeline da
 1. Install dependencies:
    - Backend: `npm install` in `backend/`
    - Frontend: `npm install` in `frontend/`
+   - Landing: `npm install` in `landing/` (marketing site)
 2. Configure environment:
    - Copy `backend/.env.example` → `backend/.env`
    - Encryption: `SECRET_KEY` (used to encrypt Jenkins API token)
@@ -118,6 +119,7 @@ Jenkins connectivity is validated via the Settings module before any pipeline da
 3. Run servers:
    - Backend: `npm run dev` in `backend/` (default port 4000)
    - Frontend: `npm run dev` in `frontend/` (port 5173)
+   - Landing: `npm run dev` in `landing/` (port 5173)
 4. Save Jenkins settings via POST `/api/settings/jenkins`.
 5. Frontend connects to Socket.IO for real-time analysis events.
 
@@ -126,7 +128,48 @@ Jenkins connectivity is validated via the Settings module before any pipeline da
  - Jenkins credentials are stored in MongoDB (`jenkins_settings`) encrypted via `SECRET_KEY` and loaded server-side.
 
 ## Project Structure
-See the repository for the mandated monorepo structure under `dcpvas/` with `backend/` and `frontend/` folders.
+See the repository for the mandated monorepo structure under `DCPVAS/` with `backend/`, `frontend/`, and `landing/` folders.
+
+```
+LICENSE.md
+package.json
+README.md
+backend/
+   package.json
+   src/
+      app.js, server.js, controllers/, models/, routes/, services/
+frontend/
+   package.json
+   src/
+      App.jsx, components/, pages/, services/
+landing/
+   package.json
+   src/
+      App.jsx, pages/, components/, layouts/
+```
+
+## Landing App (Dark SaaS Theme)
+- Tailwind v4 configured with `@tailwindcss/vite`; global tokens set in [landing/src/index.css](landing/src/index.css) via `@theme`:
+   - `bg`, `surface`, `primary` (#7C5CFF), `accent` (#00E5FF), `text`, `muted`, `border`.
+- Root wrapper applies `bg-bg text-text` in [landing/src/App.jsx](landing/src/App.jsx).
+- Navbar and buttons use the custom palette; primary buttons include a subtle purple glow.
+
+### 3D Hero Background
+- Implemented with `@react-three/fiber` and `@react-three/drei` in [landing/src/components/HeroBackground3D.jsx](landing/src/components/HeroBackground3D.jsx).
+- Subtle floating cubes using brand colors; positioned behind content (`absolute inset-0`, pointer-events disabled).
+- Atmospheric depth via scene fog; toned opacity and distance for premium, non-distracting visuals.
+- Scroll-based one-way animation:
+   - Normalizes `window.scrollY` to 0–1 progress and applies slight zoom, forward Z shift, and fade-out near the end.
+   - Progress is monotonic (does not replay when scrolling up).
+
+### Landing Dev Commands
+```
+cd landing
+npm install
+npm run dev
+```
+
+If Tailwind tokens don’t apply, ensure `vite.config.js` includes `@tailwindcss/vite` and `index.css` imports `tailwindcss`.
 
 ## Postman Verification
 1. Health: `GET /api/health/openai` → `{ openaiKeyLoaded, model }`
@@ -191,3 +234,26 @@ DCPVAS (DevOps CI/CD Pipeline Visualizer with AI-Assisted Failure Analysis) help
 - Temporary 404 during new build initialization: Expected when the frontend queries before the backend has persisted the run.
 - Defensive frontend handling: Queries return `null` for 404 and continue normally; progress flow remains unchanged.
 - Real-time feeling without SSE: Socket events are used selectively (e.g., log streaming), while final analysis retrieval is performed via REST for simplicity.
+
+## Tech Notes
+- Frontend/landing use Vite with React; hot reload is enabled.
+- Tailwind v4 tokens (`@theme`) are required for classes like `bg-bg`, `text-text`, and `bg-primary` to resolve.
+- The landing’s 3D background uses light-weight materials and minimal lights; no heavy shaders.
+
+## Quick Start (All Apps)
+```
+# Backend
+cd backend
+npm install
+npm run dev
+
+# Frontend
+cd ../frontend
+npm install
+npm run dev
+
+# Landing (marketing site)
+cd ../landing
+npm install
+npm run dev
+```
