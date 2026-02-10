@@ -2,7 +2,7 @@
 
 /* Tailwind v4 design tokens for the dark SaaS theme */
 @theme {
-	--color-bg: #0B0E14;
+	--color-bg: #000000;
 	--color-surface: #121826;
 	--color-primary: #7C5CFF;
 	--color-accent: #00E5FF;
@@ -12,4 +12,4 @@
 }
 
 /* Optional: ensure full-height layout renders dark immediately */
-html, body, #root { height: 100%; }
+html, body, #root { height: 100%; margin: 0; background-color: var(--color-bg); scroll-behavior: smooth; }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getRawLogs, getPipelineAnalysis } from '../services/api.js';
 import { requestLogStream, subscribeLogs } from '../services/socket.js';
 import { useAnalysisStatusQuery } from '../services/queries.js';
+import PipelineGraph from './PipelineGraph.jsx';
 
 const DEFAULT_TABS = [
   'Human Summary',
@@ -11,7 +12,7 @@ const DEFAULT_TABS = [
 ];
 
 /* -------------------- Progress Bar (Amazon-style Stepper) -------------------- */
-function ProgressBar({ step }) {
+export function ProgressBar({ step }) {
   // UI-only configuration (do not modify status values)
   const STEPS = [
     { key: 'FETCHING_LOGS', label: 'Fetching Logs' },
@@ -29,28 +30,51 @@ function ProgressBar({ step }) {
   }
   const completedAll = step === 'COMPLETED' || currentIndex === STEPS.length - 1;
 
+  // Progress width for smooth animated line
+  const progressPct = (() => {
+    const total = STEPS.length - 1;
+    if (total <= 0) return 100;
+    const idx = completedAll ? total : Math.max(0, Math.min(currentIndex, total));
+    return Math.round((idx / total) * 100);
+  })();
+
   return (
-    <div className="mt-3 select-none flex justify-end">
-      {/* Compact horizontal stepper, right-aligned */}
-      <div className="flex items-center max-w-[420px] w-full">
-        {STEPS.map((s, idx) => {
-          const isCompleted = completedAll ? idx <= currentIndex : idx < currentIndex;
-          const isActive = !completedAll && idx === currentIndex;
-          return (
-            <div key={s.key} className="flex items-center w-full">
-              <div className="flex flex-col items-center">
+    <div className="mt-6 mb-6 select-none flex justify-center">
+      {/* Modern horizontal centered stepper */}
+      <div className="relative w-full max-w-3xl px-2 sm:px-4">
+        {/* Base track */}
+        <div
+          className="absolute left-3 right-3 top-3 sm:top-4 h-[2px] rounded"
+          style={{ backgroundColor: 'var(--border-color)' }}
+          aria-hidden
+        />
+        {/* Progress fill (animated) */}
+        <div
+          className="absolute left-3 top-3 sm:top-4 h-[2px] rounded transition-all duration-500 ease-out"
+          style={{ width: `calc(${progressPct}% - 12px)`, backgroundColor: 'var(--accent)' }}
+          aria-hidden
+        />
+        {/* Steps */}
+        <div className="flex items-center justify-between w-full">
+          {STEPS.map((s, idx) => {
+            const isCompleted = completedAll ? idx <= currentIndex : idx < currentIndex;
+            const isActive = (idx === currentIndex) && (step === 'COMPLETED' || !completedAll);
+            return (
+              <div key={s.key} className="flex flex-col items-center text-center">
                 <div
                   className={[
-                    'w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-medium border',
-                    !isCompleted && !isActive ? 'bg-gray-100 text-gray-400 border-gray-300' : '',
+                    'flex items-center justify-center rounded-full border shadow-sm',
+                    'transition-all duration-300',
+                    isCompleted ? 'text-white' : 'text-gray-400',
+                    isActive ? 'ring-4 ring-offset-2' : '',
                   ].join(' ')}
-                  style={
-                    isCompleted
-                      ? { backgroundColor: 'var(--accent)', color: '#ffffff', borderColor: 'var(--accent)' }
-                      : isActive
-                        ? { backgroundColor: 'var(--bg-primary)', color: 'var(--accent)', borderColor: 'var(--accent)', borderWidth: '2px' }
-                        : undefined
-                  }
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    backgroundColor: isCompleted ? 'var(--accent)' : 'var(--bg-primary)',
+                    borderColor: isActive || isCompleted ? 'var(--accent)' : 'var(--border-color)',
+                    boxShadow: isActive ? '0 0 0 4px rgba(0,0,0,0.02), 0 0 0 0 var(--accent)' : undefined,
+                  }}
                   aria-current={isActive ? 'step' : undefined}
                   aria-label={s.label}
                   title={s.label}
@@ -58,22 +82,15 @@ function ProgressBar({ step }) {
                   {isCompleted ? '✓' : ''}
                 </div>
                 <div
-                  className="hidden sm:block text-[10px] mt-1 whitespace-nowrap"
+                  className="text-[11px] mt-2 whitespace-nowrap"
                   style={{ color: isCompleted || isActive ? 'var(--accent)' : 'var(--text-secondary)' }}
                 >
                   {s.label}
                 </div>
               </div>
-              {idx !== STEPS.length - 1 && (
-                <div
-                  className="flex-1 h-[1px] mx-2"
-                  style={{ backgroundColor: idx < currentIndex ? 'var(--accent)' : 'var(--border-color)' }}
-                  aria-hidden
-                />
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -93,6 +110,8 @@ export default function FailureAnalysis({ run }) {
   const stepFromQuery = typeof analysisStatusFromQuery === 'object' ? analysisStatusFromQuery?.status : analysisStatusFromQuery;
   const finalResultPresent = typeof analysisStatusFromQuery === 'object' ? (analysisStatusFromQuery?.finalResult != null) : (run?.finalResult != null);
   const resultReady = Boolean(finalResultPresent || analysisState);
+  const prevStepRef = useRef(null);
+  const [visualStep, setVisualStep] = useState(stepFromQuery || status);
 
   // Determine historical executions: completed pipeline or completed analysis
   const pipelineCompleted = run?.status === 'SUCCESS' || run?.status === 'FAILURE' || run?.status === 'FAILED' || run?.buildStatus === 'COMPLETED';
@@ -104,23 +123,10 @@ export default function FailureAnalysis({ run }) {
     analysis?.skipped === true ||
     run?.aiAnalysis?.skipped === true;
 
-  const tabs = aiSkipped ? ['Raw Logs'] : DEFAULT_TABS;
+  const timelineAvailable = Array.isArray(run?.stages) && run.stages.length > 0;
+  const tabs = aiSkipped ? ['Raw Logs'] : [...DEFAULT_TABS, ...(timelineAvailable ? ['Timeline'] : [])];
 
-  /* Auto tab switch: prefer logs for historical runs to show data immediately */
-  useEffect(() => {
-    if (aiSkipped) {
-      setTab('Raw Logs');
-      return;
-    }
-    const hasLogs = String(run?.logs || logs || '').length > 0;
-    if (isHistorical && hasLogs) {
-      setTab('Raw Logs');
-      return;
-    }
-    if (status === 'COMPLETED') {
-      setTab('Human Summary');
-    }
-  }, [status, aiSkipped, isHistorical, run?.logs, logs]);
+  // NEVER auto-switch tabs; keep default on analysis. Users choose manually.
 
   /* Init logs if already present */
   useEffect(() => {
@@ -164,7 +170,23 @@ export default function FailureAnalysis({ run }) {
   useEffect(() => {
     setAnalysisState(null);
     setLocalStatus(null);
+    setVisualStep(stepFromQuery || status || null);
   }, [buildNumber]);
+
+  /* Visual step with failsafe: if backend jumps AI_ANALYZING -> COMPLETED, simulate STORING_RESULTS for 1s */
+  useEffect(() => {
+    const incoming = stepFromQuery || status || null;
+    const prev = prevStepRef.current;
+    prevStepRef.current = incoming;
+    if (!incoming) return;
+    if (incoming === 'COMPLETED' && prev && prev !== 'STORING_RESULTS') {
+      // Simulate 'STORING_RESULTS' briefly for UX continuity
+      setVisualStep('STORING_RESULTS');
+      const t = setTimeout(() => setVisualStep('COMPLETED'), 1000);
+      return () => clearTimeout(t);
+    }
+    setVisualStep(incoming);
+  }, [stepFromQuery, status]);
 
   // Progress bar driven only by analysis status from React Query
 
@@ -195,13 +217,15 @@ export default function FailureAnalysis({ run }) {
         ))}
       </div>
 
+      {/* Stepper rendered at page level (after build info) */}
+
       {/* ---------------- HUMAN SUMMARY ---------------- */}
       {!aiSkipped && tab === 'Human Summary' && (
         <SectionWrapper
           title="Human Summary"
           buildRunning={buildRunning}
           status={localStatus || status}
-          step={stepFromQuery || status}
+          step={visualStep}
           resultReady={resultReady}
           isHistorical={isHistorical}
         >
@@ -253,7 +277,7 @@ export default function FailureAnalysis({ run }) {
           title="Suggested Fix"
           buildRunning={buildRunning}
           status={localStatus || status}
-          step={stepFromQuery || status}
+          step={visualStep}
           resultReady={resultReady}
           isHistorical={isHistorical}
         >
@@ -298,7 +322,7 @@ export default function FailureAnalysis({ run }) {
           title="Technical Recommendation"
           buildRunning={buildRunning}
           status={localStatus || status}
-          step={stepFromQuery || status}
+          step={visualStep}
           resultReady={resultReady}
           dark
           isHistorical={isHistorical}
@@ -345,6 +369,14 @@ export default function FailureAnalysis({ run }) {
           finalized={Boolean(run?.logsFinal) || run?.buildStatus === 'COMPLETED'}
         />
       )}
+
+      {tab === 'Timeline' && timelineAvailable && (
+        <div className="mt-2">
+          {/* Use existing pipeline graph as execution timeline */}
+          {/* Keeps layout consistent and avoids demo hacks */}
+          <PipelineGraph run={run} />
+        </div>
+      )}
     </div>
   );
 }
@@ -367,17 +399,9 @@ function SectionWrapper({ title, buildRunning, status, step, resultReady, childr
         </div>
       )}
 
-      {/* Show progress only for live executions */}
-      {!isHistorical && !buildRunning && step && (step !== 'FAILED') && ((step !== 'COMPLETED') || !resultReady) && (
-        <div>
-          <p className="text-sm text-gray-600">
-            {step === 'STORING_RESULTS' || (step === 'COMPLETED' && !resultReady) ? 'Finalizing analysis…' : 'Analyzing logs…'}
-          </p>
-          <ProgressBar step={step} />
-        </div>
-      )}
+      {/* Stepper rendered globally above — keep section content clean */}
 
-      {/* Render results immediately for historical executions, or whenever data is ready */}
+      {/* Render results immediately once available; do not auto-switch tabs */}
       {!buildRunning && (isHistorical || resultReady || status === 'FAILED') && children}
     </div>
   );

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import Modal from '../components/Modal.jsx';
-import ExecutionDetails from '../components/ExecutionDetails.jsx';
+// Modal view now uses FailureAnalysis; keep ExecutionDetails unused for now
+import PipelineGraph from '../components/PipelineGraph.jsx';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
 
@@ -79,6 +80,33 @@ export default function History() {
       // Keep existing data; do not close modal
     }
   };
+
+  // Modal polling: fetch build every 2s until analysis progress reaches COMPLETED
+  useEffect(() => {
+    if (!selected?.buildNumber) return;
+    let cancelled = false;
+    let timer = null;
+    const fetchOnce = async () => {
+      try {
+        const detail = await getPipelineBuild(selected.buildNumber);
+        if (cancelled) return;
+        if (detail) {
+          setSelected((prev) => ({ ...(prev || {}), ...(detail || {}) }));
+          const progress = String(detail?.analysisStatus || detail?.progress || '').toUpperCase();
+          // Stop polling only when progress === COMPLETED
+          if (progress === 'COMPLETED') return;
+        }
+      } catch (_) {
+        // Ignore transient errors during polling
+      }
+      timer = setTimeout(fetchOnce, 2000);
+    };
+    fetchOnce();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [selected?.buildNumber]);
 
   const filteredRows = useMemo(() => {
     const normalizeStatus = (s) => {
@@ -180,7 +208,21 @@ export default function History() {
         title={selected ? `Execution Details — #${selected.buildNumber}` : 'Execution Details'}
       >
         {selected ? (
-          <ExecutionDetails execution={selected} />
+          <div className="space-y-4">
+            {/* Header summary */}
+            <div className="p-4 bg-white rounded shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-600">{selected?.jobName || 'Pipeline'}</div>
+                  <div className="text-lg font-semibold">#{selected?.buildNumber}</div>
+                </div>
+                <span className={`px-2 py-1 rounded text-xs ${selected?.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : selected?.status === 'FAILURE' || selected?.status === 'FAILED' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{(selected?.status || 'UNKNOWN').toUpperCase()}</span>
+              </div>
+            </div>
+            {selected?.stages && <PipelineGraph run={selected} />}
+            {/* Use unified FailureAnalysis component for production-grade UX */}
+            <FailureAnalysis run={selected} />
+          </div>
         ) : (
           <div className="text-sm text-gray-600">Loading…</div>
         )}
