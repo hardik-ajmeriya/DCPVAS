@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import PipelineGraph from '../components/PipelineGraph.jsx';
+import { ProgressBar } from '../components/FailureAnalysis.jsx';
 import { subscribeBuilds, subscribeConnection } from '../services/socket.js';
 import { useBuildDetailsQuery, useLatestBuildQuery, useAnalysisStatusQuery } from '../services/queries.js';
 import { useQueryClient } from '@tanstack/react-query';
@@ -53,6 +54,23 @@ export default function BuildDetails({ buildNumber }) {
       }
     }
   }, [analysisStatusObj, currentBuildNumber]);
+
+  // Visual step with failsafe to simulate STORING_RESULTS on sudden COMPLETED
+  const prevStepRef = useRef(null);
+  const [visualStep, setVisualStep] = useState(null);
+  useEffect(() => {
+    const status = typeof analysisStatusObj === 'object' ? analysisStatusObj?.status : analysisStatusObj;
+    const incoming = status || data?.analysisStatus || null;
+    const prev = prevStepRef.current;
+    prevStepRef.current = incoming;
+    if (!incoming) return;
+    if (incoming === 'COMPLETED' && prev && prev !== 'STORING_RESULTS') {
+      setVisualStep('STORING_RESULTS');
+      const t = setTimeout(() => setVisualStep('COMPLETED'), 1000);
+      return () => clearTimeout(t);
+    }
+    setVisualStep(incoming);
+  }, [analysisStatusObj, data?.analysisStatus]);
 
   // Simple fetch: when analysis is completed, get final analysis and store in state
   useEffect(() => {
@@ -160,6 +178,11 @@ export default function BuildDetails({ buildNumber }) {
             </div>
           </div>
         )}
+            {/* Centered progress stepper after build information */}
+            {visualStep && visualStep !== 'FAILED' && (
+              <ProgressBar step={visualStep} />
+            )}
+
       </div>
 
       {data?.status === 'SUCCESS' && (

@@ -21,10 +21,6 @@ const queryClient = new QueryClient({
 function Root() {
   useEffect(() => {
     const socket = getSocket();
-    // One-time auto-refresh guard: if previous run set completion flag, clear it now
-    if (sessionStorage.getItem('aiCompleted') === 'true') {
-      sessionStorage.removeItem('aiCompleted');
-    }
     const onReconnectGeneric = () => {
       // Resync on socket reconnect
       queryClient.invalidateQueries({ queryKey: qk.latest });
@@ -74,14 +70,6 @@ function Root() {
         queryClient.setQueryData(qk.analysis(n), 'COMPLETED');
         queryClient.invalidateQueries({ queryKey: qk.analysis(n) });
         queryClient.invalidateQueries({ queryKey: qk.build(n) });
-      }
-      // One-time auto-refresh after AI completion to guarantee UI sync
-      if (status === 'COMPLETED') {
-        const alreadySet = sessionStorage.getItem('aiCompleted') === 'true';
-        if (!alreadySet) {
-          sessionStorage.setItem('aiCompleted', 'true');
-          window.location.reload();
-        }
       }
     };
     socket.on('build:new', onBuildNew);
