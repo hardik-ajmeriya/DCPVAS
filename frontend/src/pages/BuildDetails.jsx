@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import PipelineGraph from '../components/PipelineGraph.jsx';
-import { ProgressBar } from '../components/FailureAnalysis.jsx';
+import PipelineProcessingSteps from '../components/PipelineProcessingSteps.jsx';
 import { subscribeBuilds, subscribeConnection } from '../services/socket.js';
 import { useBuildDetailsQuery, useLatestBuildQuery, useAnalysisStatusQuery } from '../services/queries.js';
 import { useQueryClient } from '@tanstack/react-query';
@@ -180,7 +180,7 @@ export default function BuildDetails({ buildNumber }) {
         )}
             {/* Centered progress stepper after build information */}
             {visualStep && visualStep !== 'FAILED' && (
-              <ProgressBar step={visualStep} />
+              <PipelineProcessingSteps step={visualStep} pipelineStatus={data?.status} />
             )}
 
       </div>

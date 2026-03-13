@@ -32,6 +32,9 @@ const PipelineRawLogSchema = new mongoose.Schema(
     // Per-build analysis summary for quick UI
     analyzedAt: { type: Date, default: null },
     confidenceScore: { type: Number, min: 0, max: 1, default: null },
+    branch: { type: String, default: null, trim: true },
+    commit: { type: String, default: null, trim: true },
+    durationSeconds: { type: Number, default: null },
   },
   { timestamps: true }
 );

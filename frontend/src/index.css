@@ -20,22 +20,25 @@ html, body, #root { height: 100%; }
 }
 
 :root.theme-dark {
-	--bg-primary: #0b1220;
-	--bg-secondary: #111827;
-	--text-primary: #e5e7eb;
-	--text-secondary: #9ca3af;
-	--border-color: #1f2937;
-	--accent: #3b82f6;
+	/* Dark purple + deep navy theme */
+	--bg-primary: #0B1220; /* cards */
+	--bg-secondary: #020617; /* background */
+	--text-primary: #ffffff;
+	--text-secondary: #9ca3af; /* gray-400 */
+	--border-color: #1E293B; /* subtle */
+	--accent: #7C5CFF; /* primary accent base */
+	--accent-2: #4F46E5; /* secondary accent */
 	--log-bg: #020617;
 	--log-text: #e5e7eb;
-	--hover-surface: #162033; /* subtle dark hover */
-	--nav-surface: rgba(11, 18, 32, 0.65);
+	--hover-surface: #0f172a; /* subtle dark hover */
+	--nav-surface: rgba(2, 6, 23, 0.75);
 }
 
 /* Apply theme to page */
 body {
 	background: var(--bg-secondary);
 	color: var(--text-primary);
+ 	font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
 /* Safe overrides to align existing utility usage with theme variables */
@@ -70,9 +73,47 @@ body {
 	position: sticky;
 	top: 0;
 	z-index: 50;
-	backdrop-filter: saturate(180%) blur(12px);
+	backdrop-filter: saturate(180%) blur(10px);
+	background-image: linear-gradient(135deg, rgba(124, 92, 255, 0.08), rgba(79, 70, 229, 0.08));
 	background-color: var(--nav-surface);
 	border-bottom: 1px solid var(--border-color);
+}
+
+/* Card surface with soft glow */
+.card-surface {
+	background-color: var(--bg-primary);
+	border: 1px solid var(--border-color);
+	border-radius: 16px;
+	box-shadow: 0 0 0 1px rgba(30, 41, 59, 0.4), 0 8px 30px rgba(79, 70, 229, 0.08);
+	padding: 24px;
+}
+
+/* Accent gradient utilities */
+.accent-gradient {
+	background-image: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+
+/* Status pulses */
+.pulse-running {
+	position: relative;
+}
+.pulse-running::after {
+	content: '';
+	position: absolute;
+	left: -6px;
+	top: 50%;
+	width: 6px;
+	height: 6px;
+	border-radius: 9999px;
+	transform: translateY(-50%);
+	background: var(--accent);
+	box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.7);
+	animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+	0% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.7); }
+	70% { box-shadow: 0 0 0 12px rgba(124, 92, 255, 0); }
+	100% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0); }
 }
 
 /* Form controls: keep contrast in dark/light modes */
@@ -99,4 +140,23 @@ textarea:focus,
 select:focus {
 	outline: none;
 	border-color: var(--accent);
+}
+
+/* Skeleton shimmer for loaders */
+.skeleton-line {
+	background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+	background-size: 200% 100%;
+	animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+	0% { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
+}
+
+/* Smooth number update */
+.animate-number {
+	transition: transform 150ms ease-out, opacity 150ms ease-out;
+}
+.animate-number:hover {
+	transform: translateY(-0.5px);
 }
