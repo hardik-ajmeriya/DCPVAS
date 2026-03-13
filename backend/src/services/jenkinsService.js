@@ -63,9 +63,19 @@ let cache = {
 // Track last known build number to emit build:new on increments
 let lastKnownBuildNumber = null;
 
+// Map Jenkins build payload to a consistent human-friendly status
+function mapBuildStatus(build) {
+  if (build?.building) return 'RUNNING';
+  const result = String(build?.result || '').toUpperCase();
+  if (result === 'SUCCESS') return 'SUCCESS';
+  if (result === 'FAILURE') return 'FAILURE';
+  if (result === 'ABORTED') return 'ABORTED';
+  return 'UNKNOWN';
+}
+
 function normalizeBuild(json) {
   if (!json) return null;
-  const status = json.result || (json.building ? 'BUILDING' : 'UNKNOWN');
+  const status = mapBuildStatus(json);
   return {
     id: `jenkins-${json.number}`,
     buildNumber: json.number,
@@ -76,14 +86,38 @@ function normalizeBuild(json) {
   };
 }
 
-async function buildJobPath() {
-  const { jobName } = await getJenkinsConfig();
+function extractScmMetadata(buildJson) {
+  const actions = Array.isArray(buildJson?.actions) ? buildJson.actions : [];
+  for (const action of actions) {
+    const branchInfo = action?.lastBuiltRevision?.branch?.[0];
+    if (branchInfo) {
+      return {
+        branch: branchInfo.name || null,
+        commit: branchInfo.SHA1 || null,
+      };
+    }
+    if (action?.buildsByBranchName && typeof action.buildsByBranchName === 'object') {
+      const firstKey = Object.keys(action.buildsByBranchName)[0];
+      const data = action.buildsByBranchName[firstKey];
+      if (data?.revision) {
+        return {
+          branch: data.revision.branch?.[0]?.name || firstKey || null,
+          commit: data.revision.SHA1 || null,
+        };
+      }
+    }
+  }
+  return { branch: null, commit: null };
+}
+
+async function buildJobPath(jobNameOverride) {
+  const jobName = jobNameOverride || (await getJenkinsConfig()).jobName;
   const parts = (jobName || '').split('/').filter(Boolean);
   return parts.map((p) => `/job/${encodeURIComponent(p)}`).join('');
 }
 
-async function fetchLatestBuildJson() {
-  const url = `${await buildJobPath()}/lastBuild/api/json`;
+async function fetchLatestBuildJson(jobNameOverride) {
+  const url = `${await buildJobPath(jobNameOverride)}/lastBuild/api/json`;
   const client = await getClient();
   const { data } = await client.get(url);
   return data;
@@ -99,6 +133,19 @@ async function fetchRecentBuildsJson(limit = 50) {
   if (limit === 'all') return builds;
   const n = typeof limit === 'number' ? limit : 50;
   return builds.slice(0, n);
+}
+
+// List jobs configured on the Jenkins server root
+export async function listJenkinsJobs() {
+  const client = await getClient();
+  const { data } = await client.get('/api/json?tree=jobs[name]');
+  return Array.isArray(data?.jobs) ? data.jobs : [];
+}
+
+// Fetch recent builds (raw Jenkins shape) for the configured job
+export async function getJenkinsBuilds(limit = 50) {
+  const builds = await fetchRecentBuildsJson(limit);
+  return Array.isArray(builds) ? builds : [];
 }
 
 async function fetchFullLog(buildNumber) {
@@ -119,18 +166,43 @@ async function fetchFullLog(buildNumber) {
   return content;
 }
 
+function normalizeStageStatus(status) {
+  const value = String(status || '').trim().toUpperCase();
+  if (!value) return 'PENDING';
+  if (value === 'SUCCESS') return 'SUCCESS';
+  if (value === 'FAILED' || value === 'FAILURE' || value === 'ABORTED' || value === 'UNSTABLE') return 'FAILED';
+  if (value === 'IN_PROGRESS' || value === 'PAUSED_PENDING_INPUT' || value === 'PAUSED' || value === 'RUNNING' || value === 'QUEUED') return 'RUNNING';
+  if (value === 'NOT_EXECUTED' || value === 'SKIPPED') return 'PENDING';
+  return 'PENDING';
+}
+
+function normalizeStageStatusForFlow(status) {
+  const normalized = normalizeStageStatus(String(status || '').toUpperCase());
+  if (normalized === 'SUCCESS') return 'success';
+  if (normalized === 'FAILED') return 'failed';
+  if (normalized === 'RUNNING') return 'running';
+  return 'pending';
+}
+
+function isSystemStage(stage) {
+  const name = String(stage?.name || '');
+  return name.toLowerCase().includes('declarative:');
+}
+
 async function fetchStages(buildNumber) {
   try {
     const url = `${await buildJobPath()}/${buildNumber}/wfapi/describe`;
     const client = await getClient();
     const { data } = await client.get(url);
+    console.log(`[fetchStages] wfapi raw stages for build #${buildNumber}:`, JSON.stringify(data.stages?.map(s => ({ name: s.name, status: s.status }))));
     const stages = (data.stages || []).map((s) => ({
       name: s.name,
-      status: s.status === 'SUCCESS' ? 'SUCCESS' : s.status === 'FAILED' ? 'FAILED' : s.status,
+      status: normalizeStageStatus(s.status),
       durationMs: s.durationMillis || 0,
     }));
     if (stages.length) return stages;
-  } catch {
+  } catch (err) {
+    console.warn(`[fetchStages] wfapi failed for build #${buildNumber}:`, err?.message);
     // fall through to log-based parsing
   }
   // Fallback: derive stages from real console logs (no mock data)
@@ -208,10 +280,13 @@ async function updateCacheOnce() {
       const statusResp = await client.get(`${jobPath}/${buildNumber}/api/json`);
       const building = !!statusResp?.data?.building;
       const result = statusResp?.data?.result || null; // SUCCESS/FAILURE/ABORTED/null
+      const { branch, commit } = extractScmMetadata(statusResp?.data);
+      const durationSeconds = Number.isFinite(statusResp?.data?.duration) ? Math.round(statusResp.data.duration / 1000) : null;
       const jobName = cfg.jobName || 'unknown-job';
       const rawExisting = await PipelineRawLog.findOne({ jobName, buildNumber }).lean();
 
       if (building) {
+        const runningStatus = mapBuildStatus({ building: true });
         // Emit started only once per build
         if (!rawExisting) {
           try {
@@ -234,15 +309,19 @@ async function updateCacheOnce() {
             $setOnInsert: {
               consoleUrl: `${cfg.baseUrl}${jobPath}/${buildNumber}/console`,
               executedAt: new Date(),
-              status: null,
+              status: runningStatus,
             },
             $set: {
+              status: runningStatus,
               buildStatus: 'BUILDING',
               building: true,
               logsFinal: false,
               analysisStatus: 'WAITING_FOR_BUILD',
               rawLogs: currentLogs || rawExisting?.rawLogs || '',
               lastLogSize: currentSize,
+              branch: branch || rawExisting?.branch || null,
+              commit: commit || rawExisting?.commit || null,
+              durationSeconds: durationSeconds ?? rawExisting?.durationSeconds ?? null,
             },
           },
           { upsert: true, new: true }
@@ -252,7 +331,7 @@ async function updateCacheOnce() {
         const finalLogs = await fetchFullLog(buildNumber);
         stages = await fetchStages(buildNumber);
         logs = finalLogs;
-        const statusNorm = result === 'SUCCESS' ? 'SUCCESS' : result === 'FAILURE' ? 'FAILURE' : 'ABORTED';
+        const statusNorm = mapBuildStatus({ building: false, result });
         const prev = await PipelineRawLog.findOne({ jobName, buildNumber }).lean();
         const currentSize = (logs || '').length;
         const stabilized = prev && prev.lastLogSize === currentSize;
@@ -272,6 +351,9 @@ async function updateCacheOnce() {
               lastLogSize: currentSize,
               logsFinal: !!stabilized,
               analysisStatus: statusNorm === 'SUCCESS' ? 'NOT_REQUIRED' : (stabilized ? 'WAITING_FOR_LOGS' : 'WAITING_FOR_LOGS'),
+              branch: branch || prev?.branch || null,
+              commit: commit || prev?.commit || null,
+              durationSeconds: durationSeconds ?? prev?.durationSeconds ?? null,
             },
           },
           { upsert: true, new: true }
@@ -373,6 +455,79 @@ export async function getLatestCached() {
 }
 
 export const __testOnly = { normalizeBuild, fetchFullLog, fetchStages };
+
+export async function getPipelineStagesForBuild(buildNumber, { jobName, persist = false } = {}) {
+  const numericBuildNumber = Number(buildNumber);
+  if (!Number.isFinite(numericBuildNumber) || numericBuildNumber <= 0) return [];
+
+  const stages = await fetchStages(numericBuildNumber);
+
+  if (persist && Array.isArray(stages) && stages.length > 0 && jobName) {
+    await PipelineRawLog.updateOne(
+      { jobName, buildNumber: numericBuildNumber },
+      { $set: { stages } }
+    );
+  }
+
+  return stages;
+}
+
+export async function getLatestPipelineStages(jobNameOverride) {
+  const latestBuild = await fetchLatestBuildJson(jobNameOverride);
+  const buildNumber = Number(latestBuild?.number);
+  const startedAt = typeof latestBuild?.timestamp === 'number' ? new Date(latestBuild.timestamp).toISOString() : null;
+  const building = !!latestBuild?.building;
+  const durationMs = building && typeof latestBuild?.timestamp === 'number'
+    ? Date.now() - latestBuild.timestamp
+    : (typeof latestBuild?.duration === 'number' ? latestBuild.duration : null);
+  const buildResult = typeof latestBuild?.result === 'string' ? latestBuild.result : undefined;
+  const overallStatus = building ? 'running' : normalizeStageStatusForFlow(buildResult);
+
+  if (!Number.isFinite(buildNumber) || buildNumber <= 0) {
+    throw new Error('Latest Jenkins build number not found');
+  }
+
+  const client = await getClient();
+  const jobPath = await buildJobPath(jobNameOverride);
+  let rawStages = [];
+
+  try {
+    const { data } = await client.get(`${jobPath}/${buildNumber}/wfapi/describe`);
+    rawStages = Array.isArray(data?.stages) ? data.stages : [];
+    console.log(`[getLatestPipelineStages] wfapi stages for build #${buildNumber}:`, rawStages.map((s) => ({ name: s?.name, status: s?.status || s?.state || s?.result })));
+  } catch (err) {
+    console.warn(`[getLatestPipelineStages] wfapi failed for build #${buildNumber}:`, err?.message || err);
+  }
+
+  const fallbackStages = rawStages.length ? [] : await fetchStages(buildNumber);
+  const sourceStages = rawStages.length ? rawStages : fallbackStages;
+  const filtered = sourceStages.filter((stage) => !isSystemStage(stage));
+
+  // Cascade pending after first failed stage
+  let failureSeen = false;
+  const stages = filtered.map((stage) => {
+    const normalized = normalizeStageStatusForFlow(stage?.status || stage?.state);
+    if (failureSeen) {
+      return { name: stage?.name || 'Unnamed Stage', status: 'pending' };
+    }
+    if (normalized === 'failed') {
+      failureSeen = true;
+    }
+    return { name: stage?.name || 'Unnamed Stage', status: normalized };
+  });
+
+  console.log('Jenkins stage response:', stages);
+  console.log(`[getLatestPipelineStages] normalized stages for build #${buildNumber}:`, stages);
+
+  return {
+    buildNumber,
+    stages,
+    status: overallStatus,
+    building,
+    durationMs,
+    startedAt,
+  };
+}
 
 export async function getRecentBuilds(limit = 50) {
   const cfg = await getJenkinsConfig();

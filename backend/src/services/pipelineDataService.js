@@ -28,6 +28,8 @@ export async function getHistory(limit = 50) {
   }
   return raws.map((r) => {
     const a = latestAIByKey.get(`${r.jobName}#${r.buildNumber}`);
+    const shortCommit = r.commit ? String(r.commit).slice(0, 7) : null;
+    const duration = Number.isFinite(r.durationSeconds) ? `${r.durationSeconds}s` : null;
     return {
       jobName: r.jobName,
       buildNumber: r.buildNumber,
@@ -36,6 +38,9 @@ export async function getHistory(limit = 50) {
       failedStage: a?.failedStage ?? null,
       detectedError: a?.detectedError ?? null,
       confidenceScore: a?.confidenceScore ?? 0,
+      branch: r.branch || null,
+      commit: shortCommit,
+      duration,
     };
   });
 }

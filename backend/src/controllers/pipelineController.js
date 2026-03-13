@@ -1,4 +1,4 @@
-import { isLiveEnabled } from "../services/jenkinsService.js";
+import { getLatestPipelineStages, getPipelineStagesForBuild, isLiveEnabled } from "../services/jenkinsService.js";
 import {
   getLatestWithAnalysis,
   getHistory,
@@ -16,10 +16,24 @@ export async function getLatestPipeline(req, res) {
     const combined = await getLatestWithAnalysis();
     if (!combined) return res.status(404).json({ error: "No builds found" });
     const { raw, ai } = combined;
+    let stages = Array.isArray(raw?.stages) ? raw.stages : [];
+
+    if (!stages.length && raw?.buildNumber) {
+      try {
+        stages = await getPipelineStagesForBuild(raw.buildNumber, {
+          jobName: raw.jobName,
+          persist: true,
+        });
+        console.log(`[getLatestPipeline] recovered ${stages.length} stages for build #${raw.buildNumber}`);
+      } catch (err) {
+        console.warn(`[getLatestPipeline] stage recovery failed for build #${raw.buildNumber}:`, err?.message || err);
+      }
+    }
+
     const isSuccess = raw.status === 'SUCCESS';
     const ready = !!ai && (ai.analysisStatus === 'COMPLETED' || ai.analysisStep === 'READY');
     const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
-    const isCompilationFailure = raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
+    const isCompilationFailure = raw.status === 'FAILURE' && stages.length === 0 && (!cleaned || cleaned.trim().length === 0);
     const placeholder = 'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
     const base = {
       jobName: raw.jobName,
@@ -28,6 +42,7 @@ export async function getLatestPipeline(req, res) {
       buildStatus: raw.buildStatus,
       building: raw.building,
       logsFinal: !!raw.logsFinal,
+      stages,
       finalResult: ai?.finalResult ?? (isSuccess ? 'SUCCESS' : null),
       // Provide logs; if none and compilation failed pre-execution, return placeholder
       logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
@@ -91,11 +106,75 @@ export async function getPipelineStages(req, res) {
   try {
     const combined = await getLatestWithAnalysis();
     if (!combined) return res.status(404).json({ error: "No builds found" });
-    return res.json({ stages: combined.raw?.stages || [], lastUpdated: combined.raw?.executedAt });
+    let stages = Array.isArray(combined.raw?.stages) ? combined.raw.stages : [];
+
+    if (!stages.length && combined.raw?.buildNumber) {
+      try {
+        stages = await getPipelineStagesForBuild(combined.raw.buildNumber, {
+          jobName: combined.raw.jobName,
+          persist: true,
+        });
+      } catch (err) {
+        console.warn(`[getPipelineStages] stage recovery failed for build #${combined.raw.buildNumber}:`, err?.message || err);
+      }
+    }
+
+    return res.json({ stages, lastUpdated: combined.raw?.executedAt, buildNumber: combined.raw?.buildNumber ?? null });
   } catch (e) {
     console.error("Failed to fetch stages:", e?.message || e);
     return res.status(502).json({ error: "Failed to fetch stages" });
   }
+}
+
+export async function getLatestPipelineFlow(req, res) {
+  try {
+    const flow = await getLatestPipelineStages();
+    console.log('[getLatestPipelineFlow] response:', flow);
+    return res.json(flow);
+  } catch (e) {
+    console.error('Failed to fetch latest pipeline flow:', e?.message || e);
+    return res.status(502).json({ error: 'Failed to fetch latest pipeline flow' });
+  }
+}
+
+export async function streamPipelineStages(req, res) {
+  // Server-Sent Events stream for live pipeline stage updates
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  let active = true;
+  const intervalMs = 3000;
+  let poller = null;
+
+  const pushEvent = async () => {
+    try {
+      const flow = await getLatestPipelineStages();
+      res.write(`data: ${JSON.stringify(flow)}\n\n`);
+
+      const completed = !flow.building && flow.status !== 'running';
+      if (completed) {
+        clearInterval(poller);
+        active = false;
+        res.end();
+      }
+    } catch (err) {
+      console.error('[streamPipelineStages] failed to push update:', err?.message || err);
+      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed to fetch pipeline stages' })}\n\n`);
+    }
+  };
+
+  // Kick off immediately, then poll
+  pushEvent();
+  poller = setInterval(pushEvent, intervalMs);
+
+  req.on('close', () => {
+    if (!active) return;
+    active = false;
+    clearInterval(poller);
+    res.end();
+  });
 }
 
 export async function getPipelineBuild(req, res) {

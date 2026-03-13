@@ -7,6 +7,8 @@ const api = axios.create({
   baseURL: apiBase,
 });
 
+export const API_BASE_URL = apiBase;
+
 export async function getJenkinsSettings() {
   const { data } = await api.get('/settings/jenkins');
   // Expected shape: { jenkinsUrl, jobName, username, isConnected, lastVerifiedAt }
@@ -18,6 +20,11 @@ export async function getJenkinsSettings() {
 export async function getLatestPipeline() {
   const { data } = await api.get('/pipeline/latest');
   return data; // { jobName, buildNumber, status, stages, executedAt, consoleUrl, analysis }
+}
+
+export async function getLatestPipelineFlow() {
+  const { data } = await api.get('/pipeline/latest-flow');
+  return data; // { buildNumber, stages }
 }
 
 export async function getPipelineHistory(limit = 50) {
@@ -34,6 +41,19 @@ export async function getPipelineLogs(number) {
 export async function getPipelineStages() {
   const { data } = await api.get('/pipeline/stages');
   return data; // { stages, lastUpdated }
+}
+
+// Dashboard metrics
+export async function getDashboardMetrics() {
+  try {
+    const { data } = await api.get('/dashboard/metrics');
+    // Expected shape:
+    // { totalPipelines, activeBuilds, failedToday, avgFixTime, aiAccuracy }
+    return data || null;
+  } catch (_) {
+    // On failure, return null to allow UI to render fallback
+    return null;
+  }
 }
 
 export async function getPipelineBuild(number) {
@@ -72,4 +92,4 @@ export async function getPipelineAnalysis(number) {
   return data; // expected: full analysis object from MongoDB
 }
 
-export default { getJenkinsSettings, getLatestPipeline, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis };
+export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics };

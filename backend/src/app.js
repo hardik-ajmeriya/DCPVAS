@@ -5,6 +5,7 @@ import executionRoutes from "./routes/executionRoutes.js";
 import openaiRoutes from "./routes/openaiRoutes.js";
 import { initJenkinsPolling } from "./services/jenkinsService.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 const app = express();
 
@@ -15,7 +16,8 @@ app.use("/api/pipeline", pipelineRoutes);
 app.use("/api/executions", executionRoutes);
 app.use("/api", openaiRoutes);
 app.use("/api/settings", settingsRoutes);
-console.log('✅ Settings routes mounted at /api/settings');
+app.use("/api/dashboard", dashboardRoutes);
+console.log('Settings routes mounted at /api/settings');
 
 // Friendly API root to avoid default 404 on /api
 app.get("/api", (req, res) => {

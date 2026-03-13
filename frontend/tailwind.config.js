@@ -10,6 +10,13 @@ export default {
         success: '#16a34a',
         failure: '#dc2626',
         neutral: '#64748b',
+        brand: {
+          bg: '#020617',
+          card: '#0B1220',
+          border: '#1E293B',
+          accent: '#7C5CFF',
+          accent2: '#4F46E5',
+        },
       },
     },
   },

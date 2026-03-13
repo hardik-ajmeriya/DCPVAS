@@ -1,32 +1,77 @@
-import { useEffect, useState } from 'react';
-import PipelineGraph from '../components/PipelineGraph.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import PipelineTable from '../components/PipelineTable.jsx';
+import { getPipelineHistory } from '../services/api.js';
+
+const PAGE_SIZE = 10;
 
 export default function Pipelines() {
-  const [run, setRun] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
-    async function load() {
+    let mounted = true;
+
+    const load = async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/pipeline/latest');
-        if (!res.ok) throw new Error('Failed to fetch latest pipeline');
-        const data = await res.json();
-        console.log('LIVE JENKINS DATA', data);
-        setRun(data);
-      } catch (e) {
-        console.error('Failed to load pipelines:', e?.message || e);
+        setLoading(true);
+        const data = await getPipelineHistory('all');
+        if (!mounted) return;
+        setRuns(Array.isArray(data) ? data : []);
+        setError('');
+      } catch (err) {
+        if (!mounted) return;
+        setError('Failed to load pipelines');
+      } finally {
+        if (mounted) setLoading(false);
       }
-    }
+    };
+
     load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
+    const t = setInterval(load, 20000);
+    return () => {
+      mounted = false;
+      clearInterval(t);
+    };
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(runs.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+
+  const pageRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return runs.slice(start, start + PAGE_SIZE);
+  }, [runs, currentPage]);
+
+  const subtitle = loading
+    ? 'Loading pipelines...'
+    : error
+      ? error
+      : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}-${Math.min(currentPage * PAGE_SIZE, runs.length)} of ${runs.length}`;
 
   return (
     <div className="p-4 space-y-4">
-      <div className="text-xl font-semibold">Pipelines</div>
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="md:col-span-3">
-          <PipelineGraph run={run} />
+      <div className="text-xl font-semibold">All Pipeline Builds</div>
+      <PipelineTable rows={pageRows} title="All Pipeline Builds" subtitle={subtitle} />
+
+      <div className="flex items-center justify-between text-sm text-gray-300">
+        <div>Page {currentPage} of {totalPages}</div>
+        <div className="flex items-center gap-2">
+          <button
+            className="px-3 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage <= 1}
+          >
+            Previous
+          </button>
+          <button
+            className="px-3 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage >= totalPages}
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>

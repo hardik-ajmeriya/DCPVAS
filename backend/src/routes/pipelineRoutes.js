@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { getLatestPipeline, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getDiagnostics, getFailureTimeline, analyzeJenkinsLogs, reanalyzePipelineBuild, getAnalysisStatus } from '../controllers/pipelineController.js';
+import { getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getDiagnostics, getFailureTimeline, analyzeJenkinsLogs, reanalyzePipelineBuild, getAnalysisStatus, streamPipelineStages } from '../controllers/pipelineController.js';
 
 const router = Router();
 
 router.get('/latest', getLatestPipeline);
+router.get('/latest-flow', getLatestPipelineFlow);
+router.get('/stream', streamPipelineStages);
 router.get('/history', getPipelineHistory);
 router.get('/logs/:number', getPipelineLogs);
 router.get('/stages', getPipelineStages);
