@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { CheckCircle } from 'lucide-react';
 import { getRawLogs, getPipelineAnalysis } from '../services/api.js';
 import { requestLogStream, subscribeLogs } from '../services/socket.js';
 import { useAnalysisStatusQuery } from '../services/queries.js';
@@ -112,6 +113,7 @@ export default function FailureAnalysis({ run }) {
   const resultReady = Boolean(finalResultPresent || analysisState);
   const prevStepRef = useRef(null);
   const [visualStep, setVisualStep] = useState(stepFromQuery || status);
+  const pipelineSuccess = String(run?.status || '').toUpperCase() === 'SUCCESS';
 
   // Determine historical executions: completed pipeline or completed analysis
   const pipelineCompleted = run?.status === 'SUCCESS' || run?.status === 'FAILURE' || run?.status === 'FAILED' || run?.buildStatus === 'COMPLETED';
@@ -194,9 +196,15 @@ export default function FailureAnalysis({ run }) {
     <div className="p-4 bg-white rounded shadow mt-4">
       <div className="font-semibold mb-3">Failure Analysis</div>
 
-      {status === 'NOT_REQUIRED' && (
-        <div className="mb-3 rounded border border-green-300 bg-green-50 text-green-800 px-3 py-2 text-sm">
-          ✅ Pipeline successful — no analysis required
+      {pipelineSuccess && (
+        <div className="mb-4 flex items-start gap-3">
+          <CheckCircle className="text-green-400 w-5 h-5 mt-1" />
+          <div className="space-y-1">
+            <p className="font-medium">Pipeline Healthy</p>
+            <p className="text-sm text-slate-400">
+              This pipeline executed successfully. AI analysis was not required.
+            </p>
+          </div>
         </div>
       )}
 

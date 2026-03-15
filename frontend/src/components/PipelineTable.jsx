@@ -1,4 +1,4 @@
-export default function PipelineTable({ rows = [], onSelect, title = 'Live Pipelines', subtitle = 'Auto-updates • No refresh' }) {
+export default function PipelineTable({ rows = [], onSelect, title = 'Live Pipelines', subtitle = 'Auto-updates • No refresh', emptyMessage = 'No pipelines yet.' }) {
   return (
     <div className="card-surface">
       <div className="flex items-center justify-between mb-3">
@@ -40,7 +40,7 @@ export default function PipelineTable({ rows = [], onSelect, title = 'Live Pipel
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan="6" className="py-6 text-center text-gray-500">No pipelines yet.</td>
+                <td colSpan="6" className="py-6 text-center text-gray-500">{emptyMessage}</td>
               </tr>
             )}
           </tbody>

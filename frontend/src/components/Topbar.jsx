@@ -7,10 +7,11 @@ export default function Topbar({ currentTab, onSelect }) {
 
   const statusText = useMemo(() => {
     if (isConnected) return jobName ? `Jenkins Connected · ${jobName}` : 'Jenkins Connected';
-    return warning ? 'Jenkins Unreachable' : 'Jenkins Not Connected';
+    return '⚠ Jenkins Disconnected';
   }, [isConnected, jobName, warning]);
 
-  const statusColor = isConnected ? 'bg-green-600' : warning ? 'bg-red-600' : 'bg-neutral';
+  const statusTitle = isConnected ? (jobName ? `Connected to ${jobName}` : 'Jenkins Connected') : 'Unable to reach Jenkins server. Check configuration.';
+  const statusColor = isConnected ? 'bg-green-600' : 'bg-amber-600';
 
   return (
     <div className="nav-blur flex items-center justify-between px-4 py-3">
@@ -32,7 +33,7 @@ export default function Topbar({ currentTab, onSelect }) {
       </div>
       {/* Right side: Jenkins badge, notifications, avatar */}
       <div className="flex items-center gap-3">
-        <span className={`px-3 py-1 rounded-full text-xs text-white ${statusColor}`}>{statusText}</span>
+        <span className={`px-3 py-1 rounded-full text-xs text-white ${statusColor}`} title={statusTitle}>{statusText}</span>
         <button className="p-2 rounded-lg hover-surface" title="Notifications">
           <BellIcon className="w-5 h-5" />
         </button>

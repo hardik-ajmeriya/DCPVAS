@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AlertTriangle, PlugZap, Loader2 } from 'lucide-react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import { getLatestPipeline, getPipelineHistory, getDashboardMetrics } from '../services/api.js';
 import MetricCard from '../components/MetricCard.jsx';
@@ -9,6 +10,8 @@ import FailureList from '../components/FailureList.jsx';
 import AIEngineCard from '../components/AIEngineCard.jsx';
 import PipelineProcessingSteps from '../components/PipelineProcessingSteps.jsx';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
+import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
+import { testJenkinsConnection } from '../services/settingsService.js';
 
 export default function Dashboard({ mode }) {
   const [buildData, setBuildData] = useState(null);
@@ -18,8 +21,40 @@ export default function Dashboard({ mode }) {
   const [history, setHistory] = useState([]);
   const [metrics, setMetrics] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
+  const { isConnected, warning, refresh } = useJenkinsStatus();
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  const connectionLoading = isConnected === null;
+  const disconnected = isConnected === false || warning;
+  const connected = isConnected === true && !warning;
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setTestResult(null);
+    try {
+      const res = await testJenkinsConnection();
+      setTestResult({ status: 'success', message: res?.message || 'Jenkins connection successful.' });
+      refresh();
+    } catch (err) {
+      const message = err?.response?.data?.message || err?.message || 'Unable to reach Jenkins server.';
+      setTestResult({ status: 'error', message });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   useEffect(() => {
+    if (!connected) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      setBuildData(null);
+      setLoading(false);
+      return undefined;
+    }
+
     const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
     const getStagesSignature = (data) => {
@@ -44,8 +79,6 @@ export default function Dashboard({ mode }) {
         // Normalize progress to ensure stepper consistency
         const progress = data?.progress ?? data?.analysisStatus ?? data?.analysisStep ?? null;
         const normalized = { ...(data || {}), progress };
-        console.log('[Dashboard] latest build stages:', normalized?.stages || []);
-
         setBuildData((prev) => {
           if (!prev) {
             setLoading(false);
@@ -69,6 +102,7 @@ export default function Dashboard({ mode }) {
       } catch (e) {
         console.error('Polling error', e);
         setError('Failed to load latest');
+        setLoading(false);
       }
     };
 
@@ -84,20 +118,27 @@ export default function Dashboard({ mode }) {
         pollingRef.current = null;
       }
     };
-  }, []);
+  }, [connected]);
 
   // Dashboard metrics: fetch on mount, refresh every 20s, and on live events
   useEffect(() => {
+    if (!connected) {
+      setMetrics(null);
+      setMetricsLoading(false);
+      return undefined;
+    }
+
     let intervalId = null;
     let mounted = true;
-    const refresh = async () => {
+    setMetricsLoading(true);
+
+    const refreshMetrics = async () => {
       try {
         const m = await getDashboardMetrics();
         if (!mounted) return;
         if (m && typeof m === 'object') {
           setMetrics(m);
         } else {
-          // Fallback: render blanks
           setMetrics(null);
         }
         setMetricsLoading(false);
@@ -108,18 +149,18 @@ export default function Dashboard({ mode }) {
       }
     };
     // Initial
-    refresh();
+    refreshMetrics();
     // Poll every 20s
-    intervalId = setInterval(refresh, 20000);
+    intervalId = setInterval(refreshMetrics, 20000);
 
     // Subscribe to build lifecycle and analysis completion to trigger refresh
     const unsubBuilds = subscribeBuilds({
-      onNew: () => refresh(),
-      onStarted: () => refresh(),
-      onCompleted: () => refresh(),
+      onNew: () => refreshMetrics(),
+      onStarted: () => refreshMetrics(),
+      onCompleted: () => refreshMetrics(),
     });
     const unsubAnalysis = subscribeAnalysis({
-      onCompleted: () => refresh(),
+      onCompleted: () => refreshMetrics(),
       onProgress: () => {},
     });
 
@@ -129,13 +170,20 @@ export default function Dashboard({ mode }) {
       unsubBuilds();
       unsubAnalysis();
     };
-  }, []);
+  }, [connected]);
 
   // Load history once and keep live updates via sockets
   useEffect(() => {
+    if (!connected) {
+      setHistory([]);
+      return undefined;
+    }
+
+    let mounted = true;
     (async () => {
       try {
         const runs = await getPipelineHistory('all');
+        if (!mounted) return;
         setHistory(Array.isArray(runs) ? runs : []);
       } catch (_) {}
     })();
@@ -171,8 +219,8 @@ export default function Dashboard({ mode }) {
         )));
       },
     });
-    return () => { unsubBuilds(); unsubAnalysis(); };
-  }, []);
+    return () => { mounted = false; unsubBuilds(); unsubAnalysis(); };
+  }, [connected]);
 
   // Stepper depends only on backend state via buildData.progress
   const lastUpdatedLabel = useMemo(() => {
@@ -183,75 +231,142 @@ export default function Dashboard({ mode }) {
   }, [buildData]);
 
   // Helper to format values safely
+  const metricsUnavailable = disconnected;
+  const metricsLoadingState = metricsLoading || connectionLoading;
   const m = metrics || {};
-  const valTotal = Number.isFinite(m.totalPipelines) ? m.totalPipelines : 0;
-  const valActive = Number.isFinite(m.activeBuilds) ? m.activeBuilds : 0;
-  const valFailed = Number.isFinite(m.failedToday) ? m.failedToday : 0;
-  const valFixTime = typeof m.avgFixTime === 'number' || typeof m.avgFixTime === 'string' ? m.avgFixTime : '--';
-  const valAccuracy = Number.isFinite(m.aiAccuracy) ? `${m.aiAccuracy}%` : '--';
+  const valTotal = metricsUnavailable ? '—' : (Number.isFinite(m.totalPipelines) ? m.totalPipelines : 0);
+  const valActive = metricsUnavailable ? '—' : (Number.isFinite(m.activeBuilds) ? m.activeBuilds : 0);
+  const valFailed = metricsUnavailable ? '—' : (Number.isFinite(m.failedToday) ? m.failedToday : 0);
+  const valFixTime = metricsUnavailable ? '—' : (typeof m.avgFixTime === 'number' || typeof m.avgFixTime === 'string' ? m.avgFixTime : '--');
+  const valAccuracy = metricsUnavailable ? '—' : (Number.isFinite(m.aiAccuracy) ? `${m.aiAccuracy}%` : '--');
 
   return (
     <div className="p-6 space-y-6">
+      {disconnected && (
+        <div className="card-surface border border-amber-500/30 bg-amber-500/10 flex gap-4 items-start">
+          <div className="mt-1 text-amber-400">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div className="flex-1 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="text-lg font-semibold text-amber-100">Jenkins Not Connected</div>
+              <span className="px-2 py-1 text-xs rounded-full border border-amber-500/40 bg-amber-500/20 text-amber-100">Disconnected</span>
+            </div>
+            <div className="text-sm text-amber-50/90">Connect your Jenkins server to start monitoring pipelines and analyzing CI/CD failures.</div>
+            <div className="flex flex-wrap gap-3">
+              <Link to="/settings" className="px-4 py-2 rounded-lg bg-amber-500 text-slate-900 font-semibold shadow hover:brightness-105 transition-colors">Configure Jenkins</Link>
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testingConnection}
+                className="px-4 py-2 rounded-lg border border-amber-400/50 text-amber-100 hover:bg-amber-500/10 disabled:opacity-70 inline-flex items-center gap-2"
+              >
+                {testingConnection && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Test Connection</span>
+              </button>
+              <button
+                type="button"
+                onClick={refresh}
+                className="px-4 py-2 rounded-lg text-sm border border-amber-400/30 text-amber-100 hover:bg-amber-500/10"
+              >
+                Refresh Status
+              </button>
+            </div>
+            {testResult && (
+              <div className={`text-xs px-3 py-2 rounded border ${testResult.status === 'success' ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100' : 'border-red-400/40 bg-red-500/10 text-red-100'}`}>
+                {testResult.message}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Metrics Row (modern cards with unique gradients and stroke colors) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-        <MetricCard title="Total Pipelines" value={valTotal} color="indigo" icon="chart-line" loading={metricsLoading} series={[0.2,0.35,0.32,0.4,0.38,0.42]} />
-        <MetricCard title="Active Builds" value={valActive} color="cyan" icon="activity" loading={metricsLoading} series={[0.1,0.2,0.18,0.25,0.22,0.3]} />
-        <MetricCard title="Failed Today" value={valFailed} color="red" icon="alert" loading={metricsLoading} series={[0.3,0.28,0.25,0.22,0.2,0.18]} />
-        <MetricCard title="Avg Fix Time" value={valFixTime} color="emerald" icon="clock" loading={metricsLoading} series={[0.5,0.48,0.45,0.42,0.4,0.38]} />
-        <MetricCard title="AI Accuracy" value={valAccuracy} color="violet" icon="brain" loading={metricsLoading} series={[0.6,0.62,0.64,0.66,0.68,0.7]} />
+        <MetricCard title="Total Pipelines" value={valTotal} color="indigo" icon="chart-line" loading={metricsLoadingState} series={[0.2,0.35,0.32,0.4,0.38,0.42]} />
+        <MetricCard title="Active Builds" value={valActive} color="cyan" icon="activity" loading={metricsLoadingState} series={[0.1,0.2,0.18,0.25,0.22,0.3]} />
+        <MetricCard title="Failed Today" value={valFailed} color="red" icon="alert" loading={metricsLoadingState} series={[0.3,0.28,0.25,0.22,0.2,0.18]} />
+        <MetricCard title="Avg Fix Time" value={valFixTime} color="emerald" icon="clock" loading={metricsLoadingState} series={[0.5,0.48,0.45,0.42,0.4,0.38]} />
+        <MetricCard title="AI Accuracy" value={valAccuracy} color="violet" icon="brain" loading={metricsLoadingState} series={[0.6,0.62,0.64,0.66,0.68,0.7]} />
       </div>
 
       {/* Live Pipeline Table */}
       <div className="space-y-2">
-        <PipelineTable rows={history.slice(0, 6)} />
-        <div className="flex justify-end">
-          <Link to="/pipelines" className="text-sm text-blue-400 hover:text-blue-300 inline-flex items-center gap-1">
-            View All Pipelines →
-          </Link>
-        </div>
+        <PipelineTable
+          rows={connected ? history.slice(0, 6) : []}
+          emptyMessage={disconnected ? 'No pipelines available. Connect Jenkins to fetch pipeline data.' : (connectionLoading ? 'Checking Jenkins connection…' : 'No pipelines yet.')}
+        />
+        {connected && (
+          <div className="flex justify-end">
+            <Link to="/pipelines" className="text-sm text-blue-400 hover:text-blue-300 inline-flex items-center gap-1">
+              View All Pipelines →
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* Pipeline Flow Visual and Failure List side-by-side */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div>
-          {buildData && (
-            <div className="card-surface mb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-lg font-semibold">{buildData.jobName || 'Pipeline'}</div>
-                  <div className="text-xs text-gray-400">Build #{buildData.buildNumber} • {lastUpdatedLabel || '—'}</div>
-                </div>
-                <div className="text-xs text-gray-400">Status: {buildData.status || 'UNKNOWN'}</div>
-              </div>
+      {connected ? (
+        <>
+          {error && (
+            <div className="card-surface border border-red-500/30 bg-red-500/10 text-sm text-red-100">
+              {error}
             </div>
           )}
-          <div className="flex flex-col gap-2">
-            {buildData?.progress && buildData.progress !== 'FAILED' && (
-              <PipelineProcessingSteps step={buildData.progress} pipelineStatus={buildData?.status} />
-            )}
-            <div className="-mt-1">
-              <PipelineFlow currentBuildNumber={buildData?.buildNumber} />
+          {/* Pipeline Flow Visual and Failure List side-by-side */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div>
+              {buildData && (
+                <div className="card-surface mb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-lg font-semibold">{buildData.jobName || 'Pipeline'}</div>
+                      <div className="text-xs text-gray-400">Build #{buildData.buildNumber} • {lastUpdatedLabel || '—'}</div>
+                    </div>
+                    <div className="text-xs text-gray-400">Status: {buildData.status || 'UNKNOWN'}</div>
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                {buildData?.progress && buildData.progress !== 'FAILED' && (
+                  <PipelineProcessingSteps step={buildData.progress} pipelineStatus={buildData?.status} />
+                )}
+                <div className="-mt-1">
+                  <PipelineFlow currentBuildNumber={buildData?.buildNumber} />
+                </div>
+              </div>
             </div>
+            <FailureList failures={history.filter((r) => ['FAILURE','FAILED'].includes(String(r.status||'').toUpperCase()))} />
+          </div>
+
+          {/* AI Engine Panel */}
+          <AIEngineCard
+            stats={{
+              analyzedToday: history.filter((r) => r.executedAt && (new Date(r.executedAt).toDateString() === new Date().toDateString())).length,
+              avgConfidence: (() => {
+                const cs = history.map((r) => typeof r.confidenceScore === 'number' ? r.confidenceScore : null).filter((v) => v != null);
+                return cs.length ? cs.reduce((a,b)=>a+b,0)/cs.length : 0;
+              })(),
+              fixesGenerated: 0,
+              modelOnline: true,
+            }}
+          />
+
+          {/* Failure Analysis remains, driven by SSE/queries */}
+          {buildData && <FailureAnalysis run={buildData} />}
+        </>
+      ) : connectionLoading ? (
+        <div className="card-surface border border-[var(--border-color)] text-sm text-gray-400">
+          Checking Jenkins connection...
+        </div>
+      ) : (
+        <div className="card-surface border border-dashed border-amber-500/30 bg-amber-500/5 text-sm text-amber-100 flex items-start gap-3">
+          <PlugZap className="w-5 h-5 mt-0.5" />
+          <div>
+            <div className="font-semibold">Live dashboards paused</div>
+            <div className="text-amber-100/80">Reconnect Jenkins to see pipelines, flow visualization, and AI insights.</div>
           </div>
         </div>
-        <FailureList failures={history.filter((r) => ['FAILURE','FAILED'].includes(String(r.status||'').toUpperCase()))} />
-      </div>
-
-      {/* AI Engine Panel */}
-      <AIEngineCard
-        stats={{
-          analyzedToday: history.filter((r) => r.executedAt && (new Date(r.executedAt).toDateString() === new Date().toDateString())).length,
-          avgConfidence: (() => {
-            const cs = history.map((r) => typeof r.confidenceScore === 'number' ? r.confidenceScore : null).filter((v) => v != null);
-            return cs.length ? cs.reduce((a,b)=>a+b,0)/cs.length : 0;
-          })(),
-          fixesGenerated: 0,
-          modelOnline: true,
-        }}
-      />
-
-      {/* Failure Analysis remains, driven by SSE/queries */}
-      {buildData && <FailureAnalysis run={buildData} />}
+      )}
     </div>
   );
 }
