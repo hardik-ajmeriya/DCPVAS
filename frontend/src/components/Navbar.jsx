@@ -15,17 +15,17 @@ export default function Navbar({ currentTab, onSelect }) {
 
   const statusText = isConnected
     ? (jobName ? `Jenkins Connected · ${jobName}` : 'Jenkins Connected')
-    : 'Jenkins Not Connected';
+    : '⚠ Jenkins Disconnected';
 
   const statusTitle = isConnected
     ? (jobName ? `Connected to ${jobName}` : 'Jenkins Connected')
-    : (warning ? 'Jenkins unreachable' : 'Jenkins Not Connected');
+    : 'Unable to reach Jenkins server. Check configuration.';
 
   const statusClasses = isConnected
     ? 'bg-success text-white'
-    : (warning ? 'bg-failure text-white' : 'bg-neutral text-white');
+    : 'bg-amber-500 text-white';
 
-  const statusIcon = isConnected ? '✓' : (warning ? '!' : '●');
+  const statusIcon = isConnected ? '✓' : '⚠';
 
   return (
     <div className="nav-blur flex items-center justify-between px-4 py-3">
