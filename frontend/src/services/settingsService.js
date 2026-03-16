@@ -11,7 +11,7 @@ export async function getJenkinsSettings() {
 
 export async function saveJenkinsSettings({ jenkinsUrl, jobName, username, apiToken }) {
   const payload = { jenkinsUrl, jobName, username, apiToken };
-  const { data } = await api.post('/settings/jenkins', payload);
+  const { data } = await api.post('/settings/jenkins/save', payload);
   return data;
 }
 

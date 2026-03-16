@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, PlugZap, Loader2 } from 'lucide-react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
-import { getLatestPipeline, getPipelineHistory, getDashboardMetrics } from '../services/api.js';
+import { getLatestPipeline, getPipelineHistory, getDashboardMetrics, getAnalysisStatus } from '../services/api.js';
 import MetricCard from '../components/MetricCard.jsx';
 import PipelineTable from '../components/PipelineTable.jsx';
 import PipelineFlow from '../components/PipelineFlow.jsx';
 import FailureList from '../components/FailureList.jsx';
 import AIEngineCard from '../components/AIEngineCard.jsx';
 import PipelineProcessingSteps from '../components/PipelineProcessingSteps.jsx';
+import AnalysisStatusBar from '../components/AnalysisStatusBar.jsx';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
 import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
 import { testJenkinsConnection } from '../services/settingsService.js';
@@ -17,13 +18,17 @@ export default function Dashboard({ mode }) {
   const [buildData, setBuildData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const pollingRef = useRef(null);
+  const eventSourceRef = useRef(null);
   const [history, setHistory] = useState([]);
+  const [analysisState, setAnalysisState] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const prevStageRef = useRef(null);
   const [metrics, setMetrics] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
   const { isConnected, warning, refresh } = useJenkinsStatus();
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const buildRef = useRef(null);
 
   const connectionLoading = isConnected === null;
   const disconnected = isConnected === false || warning;
@@ -44,81 +49,195 @@ export default function Dashboard({ mode }) {
     }
   };
 
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+  const terminalTimerRef = useRef(null);
+
+  useEffect(() => {
+    buildRef.current = buildData;
+  }, [buildData]);
+
+  const fetchAnalysisStatus = useCallback(async (jobName, buildNumber, pipelineStatus) => {
+    if (!jobName || !buildNumber) {
+      setAnalysisState(null);
+      return;
+    }
+    if (pipelineStatus && String(pipelineStatus).toUpperCase() === 'SUCCESS') {
+      setAnalysisState({ stage: 'skipped', skipped: true });
+      return;
+    }
+    try {
+      setAnalysisLoading(true);
+      const res = await getAnalysisStatus(jobName, buildNumber);
+      const incomingStageRaw = (res?.stage || res?.status || 'fetch_logs').toLowerCase();
+      const order = { fetch_logs: 1, filter_errors: 2, ai_analysis: 3, store_results: 4, completed: 5, skipped: 5 };
+      const incomingStage = order[incomingStageRaw] ? incomingStageRaw : 'fetch_logs';
+      const isSkipped = res?.skipped || incomingStage === 'skipped';
+      const prevStage = prevStageRef.current;
+      const nextStage = !prevStage || order[incomingStage] >= order[prevStage] ? incomingStage : prevStage;
+      prevStageRef.current = nextStage;
+      setAnalysisState((prev) => ({ ...(prev || {}), stage: nextStage, skipped: isSkipped }));
+      console.log('analysis stage:', nextStage, 'skipped:', isSkipped);
+    } catch (e) {
+      console.warn('Failed to fetch analysis status', e?.message || e);
+      setAnalysisState(null);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, []);
+
+  // When build number changes, reset stage tracking and refetch analysis
+  useEffect(() => {
+    const job = buildData?.jobName;
+    const build = buildData?.buildNumber;
+    prevStageRef.current = null;
+    if (job && build) {
+      fetchAnalysisStatus(job, build, buildData?.status);
+    } else {
+      setAnalysisState(null);
+    }
+  }, [buildData?.jobName, buildData?.buildNumber, buildData?.status, fetchAnalysisStatus]);
+
+  const syncLatestPipeline = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/pipeline/latest?_ts=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      const data = await res.json();
+      const payload = data?.data ?? data;
+      if (payload === null || payload === undefined || (data?.success === false && data?.data === null)) {
+        setBuildData(null);
+        setLoading(false);
+        setError('');
+        return;
+      }
+      fetchAnalysisStatus(payload.jobName, payload.buildNumber, payload.status);
+      const getStagesSignature = (val) => {
+        if (!Array.isArray(val?.stages)) return '';
+        return val.stages.map((stage) => `${stage?.name || ''}:${stage?.status || ''}`).join('|');
+      };
+      const progress = payload?.progress ?? payload?.analysisStatus ?? payload?.analysisStep ?? null;
+      const normalized = { ...(payload || {}), progress };
+      setBuildData((prev) => {
+        if (!prev) {
+          setLoading(false);
+          setError('');
+          return normalized;
+        }
+        const prevStages = getStagesSignature(prev);
+        const nextStages = getStagesSignature(normalized);
+        if (
+          prev.buildNumber !== normalized.buildNumber ||
+          prev.progress !== normalized.progress ||
+          prev.status !== normalized.status ||
+          prev.logsFinal !== normalized.logsFinal ||
+          prevStages !== nextStages
+        ) {
+          setError('');
+          return normalized;
+        }
+        return prev;
+      });
+    } catch (e) {
+      console.error('Pipeline refresh failed', e);
+      setError('Failed to load latest');
+      setLoading(false);
+    }
+  }, [apiBase, fetchAnalysisStatus]);
+
+  // Initial fetch to avoid stale UI on first render
+  useEffect(() => {
+    syncLatestPipeline();
+    const job = buildRef.current?.jobName;
+    const build = buildRef.current?.buildNumber;
+    if (job && build) fetchAnalysisStatus(job, build, buildRef.current?.status);
+  }, [syncLatestPipeline, fetchAnalysisStatus]);
+
+  // Polling fallback to keep UI fresh if SSE stalls
+  useEffect(() => {
+    if (!connected) return undefined;
+    const interval = setInterval(() => {
+      syncLatestPipeline();
+      const job = buildRef.current?.jobName;
+      const build = buildRef.current?.buildNumber;
+      if (job && build) fetchAnalysisStatus(job, build, buildRef.current?.status);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [connected, syncLatestPipeline, fetchAnalysisStatus]);
+
+  // Force terminal rendering to avoid stuck spinner after completion
+  useEffect(() => {
+    if (terminalTimerRef.current) {
+      clearTimeout(terminalTimerRef.current);
+      terminalTimerRef.current = null;
+    }
+    if (analysisState?.stage && ['completed', 'skipped'].includes(String(analysisState.stage).toLowerCase())) {
+      terminalTimerRef.current = setTimeout(() => {
+        setAnalysisState((prev) => prev ? { ...prev, stage: prev.stage, skipped: prev.skipped } : prev);
+      }, 2000);
+    }
+    return () => {
+      if (terminalTimerRef.current) {
+        clearTimeout(terminalTimerRef.current);
+        terminalTimerRef.current = null;
+      }
+    };
+  }, [analysisState]);
+
   useEffect(() => {
     if (!connected) {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
       setBuildData(null);
       setLoading(false);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
       return undefined;
     }
 
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+    syncLatestPipeline();
 
-    const getStagesSignature = (data) => {
-      if (!Array.isArray(data?.stages)) return '';
-      return data.stages.map((stage) => `${stage?.name || ''}:${stage?.status || ''}`).join('|');
-    };
+    if (eventSourceRef.current) return undefined;
 
-    const poll = async () => {
+    const es = new EventSource(`${apiBase.replace(/\/$/, '')}/events/pipeline-stream`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (evt) => {
       try {
-        // Prefer no-cache fetch to avoid browser caching stale GET responses
-        let data = null;
-        try {
-          const res = await fetch(`${apiBase}/pipeline/latest?_ts=${Date.now()}`, {
-            cache: 'no-store',
-            headers: { 'Cache-Control': 'no-cache' },
-          });
-          data = await res.json();
-        } catch {
-          data = await getLatestPipeline();
+        const data = JSON.parse(evt.data || '{}');
+        const eventType = data?.type;
+        const isPipelineEvent = eventType === 'pipeline_update';
+        const isAnalysisEvent = ['analysis_update', 'analysis_complete', 'analysis_completed'].includes(eventType);
+        if (isPipelineEvent) {
+          syncLatestPipeline();
         }
-
-        // Normalize progress to ensure stepper consistency
-        const progress = data?.progress ?? data?.analysisStatus ?? data?.analysisStep ?? null;
-        const normalized = { ...(data || {}), progress };
-        setBuildData((prev) => {
-          if (!prev) {
-            setLoading(false);
-            setError('');
-            return normalized;
-          }
-          const prevStages = getStagesSignature(prev);
-          const nextStages = getStagesSignature(normalized);
-          if (
-            prev.buildNumber !== normalized.buildNumber ||
-            prev.progress !== normalized.progress ||
-            prev.status !== normalized.status ||
-            prev.logsFinal !== normalized.logsFinal ||
-            prevStages !== nextStages
-          ) {
-            setError('');
-            return normalized;
-          }
-          return prev;
-        });
-      } catch (e) {
-        console.error('Polling error', e);
-        setError('Failed to load latest');
-        setLoading(false);
-      }
+        if (isPipelineEvent || isAnalysisEvent) {
+          const job = data?.jobName || buildRef.current?.jobName;
+          const build = data?.buildNumber || buildRef.current?.buildNumber;
+          if (job && build) fetchAnalysisStatus(job, build, data?.status);
+        }
+      } catch {}
     };
 
-    // Initial poll and start interval (single continuous loop)
-    poll();
-    if (!pollingRef.current) {
-      pollingRef.current = setInterval(poll, 1500);
-    }
+    es.onerror = () => {
+      console.warn('SSE connection lost; retrying...');
+      es.close();
+      eventSourceRef.current = null;
+      setTimeout(() => {
+        if (connected && !eventSourceRef.current) {
+          const retry = new EventSource(`${apiBase.replace(/\/$/, '')}/events/pipeline-stream`);
+          eventSourceRef.current = retry;
+          retry.onmessage = es.onmessage;
+          retry.onerror = es.onerror;
+        }
+      }, 2000);
+    };
 
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      es.close();
+      eventSourceRef.current = null;
     };
-  }, [connected]);
+  }, [connected, apiBase, syncLatestPipeline, fetchAnalysisStatus]);
 
   // Dashboard metrics: fetch on mount, refresh every 20s, and on live events
   useEffect(() => {
@@ -312,6 +431,11 @@ export default function Dashboard({ mode }) {
               {error}
             </div>
           )}
+          {!loading && !buildData && (
+            <div className="card-surface border border-dashed border-slate-500/40 bg-slate-800/40 text-sm text-slate-100">
+              No pipeline executions yet.
+            </div>
+          )}
           {/* Pipeline Flow Visual and Failure List side-by-side */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div>
@@ -325,6 +449,9 @@ export default function Dashboard({ mode }) {
                     <div className="text-xs text-gray-400">Status: {buildData.status || 'UNKNOWN'}</div>
                   </div>
                 </div>
+              )}
+              {buildData && (
+                <AnalysisStatusBar stage={analysisState?.stage} skipped={analysisState?.skipped} className="mb-3" />
               )}
               <div className="flex flex-col gap-2">
                 {buildData?.progress && buildData.progress !== 'FAILED' && (

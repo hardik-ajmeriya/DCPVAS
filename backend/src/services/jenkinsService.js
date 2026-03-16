@@ -11,6 +11,8 @@ import PipelineAnalysisAudit from '../models/PipelineAnalysisAudit.js';
 import { storeAIAnalysisForRawLog } from './openaiService.js';
 import JenkinsSettings from '../models/jenkinsSettings.js';
 import { decrypt } from './cryptoService.js';
+import { upsertPipelineRunFromRaw } from './pipelineRunService.js';
+import { broadcastEvent } from './eventStreamService.js';
 
 // Optional Socket.IO instance for emitting real-time events
 let io = null;
@@ -62,6 +64,8 @@ let cache = {
 };
 // Track last known build number to emit build:new on increments
 let lastKnownBuildNumber = null;
+// Track last SSE payload to avoid spamming identical updates
+let lastBroadcast = { buildNumber: null, status: null };
 
 // Map Jenkins build payload to a consistent human-friendly status
 function mapBuildStatus(build) {
@@ -358,10 +362,22 @@ async function updateCacheOnce() {
           },
           { upsert: true, new: true }
         );
+        try {
+          await upsertPipelineRunFromRaw(doc);
+        } catch (err) {
+          console.error('[pipelineRun] failed to upsert from raw log:', err?.message || err);
+        }
         // Emit completion event and final logs for reconciliation
         try {
           io?.emit('build:completed', { buildNumber, result: statusNorm });
           io?.emit('logs:complete', { buildNumber, logs: logs || '', status: statusNorm });
+        } catch {}
+        try {
+          broadcastEvent({ type: 'pipeline_update', buildNumber, jobName: jobName, status: statusNorm });
+          if (statusNorm === 'SUCCESS') {
+            broadcastEvent({ type: 'analysis_completed', buildNumber, jobName, status: 'skipped' });
+          }
+          lastBroadcast = { buildNumber, status: statusNorm };
         } catch {}
         // SUCCESS builds → mark NOT_REQUIRED and skip AI
         if (statusNorm !== 'FAILURE') {

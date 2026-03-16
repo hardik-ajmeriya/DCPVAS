@@ -10,68 +10,66 @@ import {
 import { analyzeCleanedLogsStrict } from "../services/openaiService.js";
 import { cleanJenkinsLogs } from "../services/logSanitizer.js";
 import { decodeJenkinsConsole } from "../services/logDecoder.js";
+import { getLatestPipelineRun } from "../services/pipelineService.js";
+import PipelineAIAnalysis from "../models/PipelineAIAnalysis.js";
+const ANALYSIS_STAGE = {
+  FETCH_LOGS: 1,
+  FILTER_ERRORS: 2,
+  AI_ANALYSIS: 3,
+  STORE_RESULTS: 4,
+  COMPLETED: 5,
+  SKIPPED: 6,
+};
 
 export async function getLatestPipeline(req, res) {
   try {
-    const combined = await getLatestWithAnalysis();
-    if (!combined) return res.status(404).json({ error: "No builds found" });
-    const { raw, ai } = combined;
-    let stages = Array.isArray(raw?.stages) ? raw.stages : [];
+    console.log("Fetching latest pipeline run via reconstruction");
+    const latestRun = await getLatestPipelineRun();
 
-    if (!stages.length && raw?.buildNumber) {
-      try {
-        stages = await getPipelineStagesForBuild(raw.buildNumber, {
-          jobName: raw.jobName,
-          persist: true,
-        });
-        console.log(`[getLatestPipeline] recovered ${stages.length} stages for build #${raw.buildNumber}`);
-      } catch (err) {
-        console.warn(`[getLatestPipeline] stage recovery failed for build #${raw.buildNumber}:`, err?.message || err);
-      }
+    if (!latestRun) {
+      return res.json({ success: true, data: null, message: "No pipeline executions yet" });
     }
 
-    const isSuccess = raw.status === 'SUCCESS';
-    const ready = !!ai && (ai.analysisStatus === 'COMPLETED' || ai.analysisStep === 'READY');
-    const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
-    const isCompilationFailure = raw.status === 'FAILURE' && stages.length === 0 && (!cleaned || cleaned.trim().length === 0);
-    const placeholder = 'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
-    const base = {
-      jobName: raw.jobName,
-      buildNumber: raw.buildNumber,
-      status: raw.status,
-      buildStatus: raw.buildStatus,
-      building: raw.building,
-      logsFinal: !!raw.logsFinal,
-      stages,
-      finalResult: ai?.finalResult ?? (isSuccess ? 'SUCCESS' : null),
-      // Provide logs; if none and compilation failed pre-execution, return placeholder
-      logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
-    };
-    if (isSuccess) {
-      console.log('STATUS', raw.status);
-      console.log('LOG LENGTH BEFORE RESPONSE (latest, SUCCESS):', base.logs?.length);
-      return res.json({
-        ...base,
-        analysisStatus: 'NOT_REQUIRED',
-        aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
-      });
+    return res.json({ success: true, data: latestRun });
+  } catch (e) {
+    console.error("Failed to fetch latest pipeline:", e?.message || e);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+export async function getAnalysisStatusForJob(req, res) {
+  try {
+    const jobName = req.params?.jobName;
+    const buildNumber = Number(req.params?.buildNumber);
+    if (!jobName || !Number.isFinite(buildNumber)) {
+      return res.status(400).json({ success: false, message: "Invalid jobName or buildNumber" });
     }
-    // Failure build → return full AI analysis fields when available
-    console.log('STATUS', raw.status);
-    console.log('RAW_LOG_LENGTH', base.logs?.length);
+
+    const doc = await PipelineAIAnalysis.findOne({ jobName, buildNumber }).sort({ updatedAt: -1 }).lean();
+    const currentStage = String(doc?.stage || doc?.analysisStatus || 'FETCH_LOGS').toUpperCase();
+    const stageKey = ANALYSIS_STAGE[currentStage] ? currentStage : 'FETCH_LOGS';
+    const normalizedStage = stageKey.toLowerCase();
+    const runningStep = normalizedStage;
+    const completedSteps = Object.entries(ANALYSIS_STAGE)
+      .filter(([, idx]) => idx < ANALYSIS_STAGE[stageKey])
+      .map(([key]) => key.toLowerCase());
+    const skipped = stageKey === 'SKIPPED' || String(doc?.analysisStatus || '').toUpperCase() === 'SKIPPED';
+
     return res.json({
-      ...base,
-      failedStage: ready ? (ai?.failedStage ?? null) : null,
-      humanSummary: ready ? (ai?.humanSummary ?? null) : null,
-      suggestedFix: ready ? (ai?.suggestedFix ?? null) : null,
-      technicalRecommendation: ready ? (ai?.technicalRecommendation ?? null) : null,
-      confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : raw?.confidenceScore ?? null,
-      analysisStatus: raw?.analysisStatus || (ai?.analysisStatus === 'COMPLETED' ? 'COMPLETED' : 'WAITING_FOR_BUILD'),
-      finalResult: ai?.finalResult ?? null,
+      success: true,
+      data: {
+        jobName,
+        buildNumber,
+        stage: normalizedStage,
+        status: doc?.analysisStatus?.toLowerCase?.() || 'pending',
+        completedSteps,
+        runningStep,
+        skipped,
+      },
     });
   } catch (e) {
-    console.error("Failed to fetch latest:", e?.message || e);
-    return res.status(502).json({ error: "Failed to fetch latest build" });
+    console.error("Failed to fetch analysis status:", e?.message || e);
+    return res.status(500).json({ success: false, message: "Pipeline retrieval failed" });
   }
 }
 

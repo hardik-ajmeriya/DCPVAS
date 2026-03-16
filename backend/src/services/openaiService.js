@@ -2,6 +2,38 @@ import OpenAI from 'openai';
 import { cleanJenkinsLogs } from './logSanitizer.js';
 import PipelineAIAnalysis from '../models/PipelineAIAnalysis.js';
 import PipelineAnalysisAudit from '../models/PipelineAnalysisAudit.js';
+import { broadcastEvent } from './eventStreamService.js';
+
+const ANALYSIS_STAGE = {
+  FETCH_LOGS: 1,
+  FILTER_ERRORS: 2,
+  AI_ANALYSIS: 3,
+  STORE_RESULTS: 4,
+  COMPLETED: 5,
+  SKIPPED: 6,
+};
+
+function stageOrder(value) {
+  return ANALYSIS_STAGE[String(value || '').toUpperCase()] || 0;
+}
+
+function advanceStage(doc, nextStage) {
+  const current = stageOrder(doc?.stage || doc?.analysisStatus);
+  const nxt = stageOrder(nextStage);
+  if (!nxt || nxt < current) return false;
+  doc.stage = nextStage;
+  const statusMap = {
+    FETCH_LOGS: 'FETCHING_LOGS',
+    FILTER_ERRORS: 'FILTERING_ERRORS',
+    AI_ANALYSIS: 'AI_ANALYZING',
+    STORE_RESULTS: 'STORING_RESULTS',
+    COMPLETED: 'COMPLETED',
+    SKIPPED: 'COMPLETED',
+  };
+  doc.analysisStatus = statusMap[nextStage] || doc.analysisStatus;
+  doc.analysisStep = statusMap[nextStage] || doc.analysisStep;
+  return true;
+}
 // Progress is now persisted in MongoDB via PipelineAIAnalysis; in-memory helper removed for API reads.
 
 function getConfig() {
@@ -107,7 +139,6 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   if (!rawDoc) throw new Error('rawDoc is required');
   // Only analyze failed builds; skip SUCCESS to conserve resources
   if (rawDoc.status !== 'FAILURE') {
-    // Emit skipped for frontend and mark NOT_REQUIRED; persist AI doc with SKIPPED
     const { io, room } = options || {};
     io?.to(room || '').emit('analysis:skipped', { buildNumber: rawDoc.buildNumber, reason: 'NOT_REQUIRED' });
     try {
@@ -123,9 +154,10 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
             finalResult: rawDoc.status || 'SUCCESS',
           },
           $set: {
-            analysisStatus: 'SKIPPED',
+            analysisStatus: 'COMPLETED',
             analysisRunStatus: 'COMPLETED',
             analysisStep: 'COMPLETED',
+            stage: 'SKIPPED',
             confidenceScore: null,
             failedStage: null,
             detectedError: null,
@@ -136,10 +168,29 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
         },
         { new: true, upsert: true }
       );
+      const payload = { buildNumber: rawDoc.buildNumber, jobName: rawDoc.jobName, status: 'skipped' };
+      try {
+        broadcastEvent({ type: 'analysis_update', stage: 'skipped', ...payload });
+        broadcastEvent({ type: 'analysis_complete', ...payload });
+        broadcastEvent({ type: 'analysis_completed', ...payload });
+      } catch {}
     } catch {}
     return { buildNumber: rawDoc.buildNumber, aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' } };
   }
   const { io, room } = options || {};
+  const emitSSEStage = (stage) => {
+    const normalizedStage = String(stage || '').toLowerCase();
+    try {
+      broadcastEvent({ type: 'analysis_update', jobName: rawDoc.jobName, buildNumber: rawDoc.buildNumber, stage: normalizedStage });
+    } catch {}
+  };
+  const emitSSEComplete = (status = 'completed') => {
+    const payload = { jobName: rawDoc.jobName, buildNumber: rawDoc.buildNumber, status };
+    try {
+      broadcastEvent({ type: 'analysis_complete', ...payload });
+      broadcastEvent({ type: 'analysis_completed', ...payload });
+    } catch {}
+  };
   const emitProgress = (stage, message) => {
     if (io)
       io.to(room || '').emit('analysis:progress', {
@@ -177,11 +228,16 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
       io.to(room || '').emit('analysis:complete', payload);
       io.to(room || '').emit('analysis:completed', payload);
     }
+    // SSE broadcast for dashboard without sockets
+    try {
+      broadcastEvent({ type: 'analysis_complete', buildNumber: rawDoc.buildNumber, jobName: rawDoc.jobName, status: 'completed' });
+    } catch {}
   };
 
-  // Upsert initial analysis document with IN_PROGRESS and FETCHING_LOGS
+  // Upsert initial analysis document with IN_PROGRESS and FETCH_LOGS
   console.log(`[AI] Step → FETCHING_LOGS (build #${rawDoc.buildNumber})`);
   emitProgress('FETCHING_LOGS', 'Starting to fetch and prepare logs');
+  emitSSEStage('fetch_logs');
   let aiDoc = await PipelineAIAnalysis.findOneAndUpdate(
     { rawLogRef: rawDoc._id, jobName: rawDoc.jobName, buildNumber: rawDoc.buildNumber },
     {
@@ -196,6 +252,7 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
         analysisStatus: 'FETCHING_LOGS',
         analysisRunStatus: 'PENDING',
         analysisStep: 'FETCHING_LOGS',
+        stage: 'FETCH_LOGS',
         failedStage: null,
         detectedError: null,
         humanSummary: null,
@@ -208,21 +265,32 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   );
   await aiDoc.save();
 
+  const timeoutGuard = setTimeout(async () => {
+    try {
+      if (stageOrder(aiDoc.stage) < ANALYSIS_STAGE.COMPLETED) {
+        advanceStage(aiDoc, 'COMPLETED');
+        await aiDoc.save();
+        emitSSEStage('completed');
+        emitSSEComplete('timeout');
+      }
+    } catch {}
+  }, 30000);
+
   // CLEANING_LOGS
   console.log('[AI] Step → CLEANING_LOGS');
   emitStarted();
   emitProgress('FILTERING_ERRORS', 'Cleaning logs and filtering errors');
-  aiDoc.analysisStatus = 'FILTERING_ERRORS';
+  advanceStage(aiDoc, 'FILTER_ERRORS');
+  emitSSEStage('filter_errors');
   aiDoc.analysisRunStatus = 'RUNNING';
-  aiDoc.analysisStep = 'FILTERING_ERRORS';
   await aiDoc.save();
   const cleaned = cleanJenkinsLogs(rawDoc.rawLogs || '');
 
   // CALLING_OPENAI
   console.log('[AI] Step → CALLING_OPENAI');
   emitProgress('AI_ANALYZING', 'Calling AI model for analysis');
-  aiDoc.analysisStatus = 'AI_ANALYZING';
-  aiDoc.analysisStep = 'AI_ANALYZING';
+  advanceStage(aiDoc, 'AI_ANALYSIS');
+  emitSSEStage('ai_analysis');
   await aiDoc.save();
   let json;
   try {
@@ -238,8 +306,8 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   // SAVING_RESULT
   console.log('[AI] Step → SAVING_RESULT');
   emitProgress('STORING_RESULTS', 'Storing analysis results in database');
-  aiDoc.analysisStatus = 'STORING_RESULTS';
-  aiDoc.analysisStep = 'STORING_RESULTS';
+  advanceStage(aiDoc, 'STORE_RESULTS');
+  emitSSEStage('store_results');
   aiDoc.failedStage = json.failedStage ?? null;
   aiDoc.detectedError = json.detectedError ?? null;
   aiDoc.humanSummary = json.humanSummary ?? null;
@@ -250,12 +318,13 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
 
   // READY
   console.log(`[AI] Step → COMPLETED (build #${rawDoc.buildNumber})`);
-  aiDoc.analysisStatus = 'COMPLETED';
+  advanceStage(aiDoc, 'COMPLETED');
   aiDoc.analysisRunStatus = 'COMPLETED';
-  aiDoc.analysisStep = 'COMPLETED';
   await aiDoc.save();
   emitProgress('COMPLETED', 'Analysis completed');
   emitComplete(aiDoc.toObject());
+  emitSSEStage('completed');
+  emitSSEComplete('completed');
   // Record audit so server restarts do not retrigger AI
   try {
     await PipelineAnalysisAudit.findOneAndUpdate(
@@ -272,6 +341,7 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
       },
     });
   } catch {}
+  clearTimeout(timeoutGuard);
   return aiDoc.toObject();
 }
 
