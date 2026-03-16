@@ -18,8 +18,15 @@ export async function getJenkinsSettings() {
 }
 
 export async function getLatestPipeline() {
-  const { data } = await api.get('/pipeline/latest');
-  return data; // { jobName, buildNumber, status, stages, executedAt, consoleUrl, analysis }
+  try {
+    const { data } = await api.get('/pipeline/latest');
+    return data; // { success, data }
+  } catch (err) {
+    if (err?.response?.status === 404) {
+      return { success: false, data: null };
+    }
+    throw err;
+  }
 }
 
 export async function getLatestPipelineFlow() {
@@ -90,6 +97,12 @@ export async function getPipelineAnalysis(number) {
   if (!number) throw new Error('build number is required');
   const { data } = await api.get(`/pipeline/analysis/${number}`);
   return data; // expected: full analysis object from MongoDB
+}
+
+export async function getAnalysisStatus(jobName, buildNumber) {
+  if (!jobName || !buildNumber) throw new Error('jobName and buildNumber are required');
+  const { data } = await api.get(`/pipeline/analysis-status/${encodeURIComponent(jobName)}/${buildNumber}`);
+  return data?.data || null;
 }
 
 export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics };

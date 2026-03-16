@@ -15,6 +15,12 @@ const PipelineAIAnalysisSchema = new mongoose.Schema(
       required: true,
       default: 'FETCHING_LOGS',
     },
+    // Deterministic stage tracker (forward-only)
+    stage: {
+      type: String,
+      enum: ['FETCH_LOGS', 'FILTER_ERRORS', 'AI_ANALYSIS', 'STORE_RESULTS', 'COMPLETED', 'SKIPPED'],
+      default: 'FETCH_LOGS',
+    },
     // Coarse analysis run lifecycle for frontend recovery
     analysisRunStatus: { type: String, enum: ['PENDING', 'RUNNING', 'COMPLETED'], default: 'PENDING' },
     // Legacy step field retained for compatibility; mirrors analysisStatus
@@ -37,6 +43,7 @@ const PipelineAIAnalysisSchema = new mongoose.Schema(
 // Allow multiple analyses per build over time (re-runs)
 PipelineAIAnalysisSchema.index({ rawLogRef: 1, analysisVersion: 1, updatedAt: -1 });
 PipelineAIAnalysisSchema.index({ jobName: 1, buildNumber: 1, updatedAt: -1 });
+PipelineAIAnalysisSchema.index({ buildNumber: -1 });
 
 const PipelineAIAnalysis =
   mongoose.models.PipelineAIAnalysis ||

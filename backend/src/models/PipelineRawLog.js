@@ -41,6 +41,8 @@ const PipelineRawLogSchema = new mongoose.Schema(
 
 // Single source of truth: insert once per build, never overwrite
 PipelineRawLogSchema.index({ jobName: 1, buildNumber: 1 }, { unique: true });
+PipelineRawLogSchema.index({ buildNumber: -1 });
+PipelineRawLogSchema.index({ executedAt: -1 });
 
 const PipelineRawLog =
   mongoose.models.PipelineRawLog || mongoose.model('PipelineRawLog', PipelineRawLogSchema, 'pipeline_raw_logs');

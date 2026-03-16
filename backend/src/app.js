@@ -6,17 +6,21 @@ import openaiRoutes from "./routes/openaiRoutes.js";
 import { initJenkinsPolling } from "./services/jenkinsService.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import eventsRoutes from "./routes/eventsRoutes.js";
 
 const app = express();
 
 app.use(cors());
+// Parse JSON/urlencoded bodies before hitting any routes
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use("/api/pipeline", pipelineRoutes);
 app.use("/api/executions", executionRoutes);
 app.use("/api", openaiRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/events", eventsRoutes);
 console.log('Settings routes mounted at /api/settings');
 
 // Friendly API root to avoid default 404 on /api
