@@ -24,6 +24,7 @@ desktop.ini
 *.env*
 backend/.env
 frontend/.env
+landing/.env
 .envrc
 
 # Build outputs

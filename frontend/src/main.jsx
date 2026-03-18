@@ -8,6 +8,7 @@ import { ThemeProvider } from './context/ThemeContext.jsx';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getSocket } from './services/socket.js';
 import { qk } from './services/queries.js';
+import { ClerkProvider } from "@clerk/react"; // ✅ ADD THIS
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,7 +24,6 @@ function Root() {
   useEffect(() => {
     const socket = getSocket();
     const onReconnectGeneric = () => {
-      // Resync on socket reconnect
       queryClient.invalidateQueries({ queryKey: qk.latest });
     };
     const onBuildNew = (payload) => {
@@ -65,14 +65,13 @@ function Root() {
     };
     const onAnalysisCompleted = (payload) => {
       const n = Number(payload?.buildNumber);
-      const status = String(payload?.status || '').toUpperCase();
       if (Number.isFinite(n) && n > 0) {
-        // Invalidate queries to refresh cache regardless
         queryClient.setQueryData(qk.analysis(n), 'COMPLETED');
         queryClient.invalidateQueries({ queryKey: qk.analysis(n) });
         queryClient.invalidateQueries({ queryKey: qk.build(n) });
       }
     };
+
     socket.on('build:new', onBuildNew);
     socket.on('build:completed', onBuildCompleted);
     socket.on('logs:complete', onLogsComplete);
@@ -82,6 +81,7 @@ function Root() {
     socket.on('analysis:complete', onAnalysisCompleted);
     socket.on('connect', onReconnectGeneric);
     socket.on('reconnect', onReconnectGeneric);
+
     return () => {
       socket.off('build:new', onBuildNew);
       socket.off('build:completed', onBuildCompleted);
@@ -94,16 +94,19 @@ function Root() {
       socket.off('reconnect', onReconnectGeneric);
     };
   }, []);
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <JenkinsStatusProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-        </JenkinsStatusProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ClerkProvider> {/* ✅ WRAP EVERYTHING */}
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <JenkinsStatusProvider>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </JenkinsStatusProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ClerkProvider>
   );
 }
 
