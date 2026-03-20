@@ -1,6 +1,7 @@
-import HeroBackground3D from "../components/HeroBackground3D";
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import HeroBackground3D from "../components/HeroBackground3D";
+import { APP_URL } from "../config/appConfig";
 
 // Simple teal line icons to match screenshot style
 function FeatureIcon({ name }) {
@@ -51,6 +52,9 @@ export default function Home() {
   // Stepper animation: cycles 1 → 2 → 3 → 4
   const [activeStep, setActiveStep] = useState(0);
   const prefersReducedMotion = useReducedMotion();
+  const redirectToApp = () => {
+    window.location.href = APP_URL;
+  };
   useEffect(() => {
     const intervalMs = prefersReducedMotion ? 2400 : 1800;
     const t = setInterval(() => setActiveStep((s) => (s + 1) % 4), intervalMs);
@@ -98,7 +102,10 @@ export default function Home() {
           </p>
 
           <div className="flex flex-wrap gap-4 mt-8">
-            <button className="px-6 py-3 rounded-lg font-medium text-text bg-gradient-to-r from-accent to-primary shadow-[0_0_30px_rgba(124,92,255,0.35)] hover:shadow-[0_0_45px_rgba(124,92,255,0.55)] transition">
+            <button
+              className="px-6 py-3 rounded-lg font-medium text-text bg-gradient-to-r from-accent to-primary shadow-[0_0_30px_rgba(124,92,255,0.35)] hover:shadow-[0_0_45px_rgba(124,92,255,0.55)] transition"
+              onClick={redirectToApp}
+            >
               Start Free Trial <span className="ml-2">→</span>
             </button>
             <button className="px-6 py-3 rounded-lg font-medium text-text border border-border hover:border-primary/80 transition">

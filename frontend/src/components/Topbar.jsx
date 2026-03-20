@@ -38,10 +38,7 @@ export default function Topbar({ currentTab, onSelect }) {
         <button className="p-2 rounded-lg hover-surface" title="Notifications">
           <BellIcon className="w-5 h-5" />
         </button>
-        <UserButton
-          afterSignOutUrl="/"
-          appearance={{ elements: { avatarBox: 'w-8 h-8' } }}
-        />
+        <UserButton afterSignOutUrl="/" />
       </div>
     </div>
   );

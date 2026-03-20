@@ -1,6 +1,11 @@
 import { Moon, Github } from "lucide-react";
+import { APP_URL } from "../config/appConfig";
 
 export default function Navbar() {
+  const redirectToApp = () => {
+    window.location.href = APP_URL;
+  };
+
   return (
     <nav className="sticky top-0 z-50 bg-surface border-b border-border">
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -34,12 +39,15 @@ export default function Navbar() {
             <Github size={18} />
           </button>
 
-          <button className="
+          <button
+            className="
             bg-primary text-text 
             px-4 py-2 rounded-lg font-medium
             hover:shadow-[0_0_20px_#7C5CFF]
             transition
-          ">
+          "
+            onClick={redirectToApp}
+          >
             View Dashboard
           </button>
         </div>

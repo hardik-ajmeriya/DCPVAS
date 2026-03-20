@@ -25,6 +25,39 @@ export default function App() {
   const { isLoaded, isSignedIn } = useUser();
   const isSignUp = location.pathname.includes('sign-up');
 
+  const authAppearance = {
+    variables: {
+      colorPrimary: '#22d3ee',
+      colorBackground: 'transparent',
+      colorText: '#e5e7eb',
+      colorTextSecondary: '#cbd5f5',
+      colorInputBackground: '#020617',
+      colorInputText: '#e5e7eb',
+    },
+    elements: {
+      rootBox: 'w-full',
+      card: 'bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.6)] rounded-2xl p-8',
+      headerTitle: 'text-white text-2xl font-semibold',
+      headerSubtitle: 'text-slate-200',
+      identityPreview: 'text-cyan-100',
+      identityPreviewEditButton: 'text-cyan-200 hover:text-cyan-100',
+      formFieldLabel: 'text-slate-100 text-sm font-semibold',
+      formFieldLabelRow: 'flex items-center justify-between text-slate-200 text-sm font-semibold',
+      formFieldHintText: 'text-slate-200/90 text-xs',
+      formFieldInput: 'bg-[#0a1229]/90 text-white placeholder:text-slate-400 border border-white/15 rounded-lg focus:border-cyan-300 focus:ring-2 focus:ring-cyan-400/80',
+      formFieldInputShowPasswordIcon: 'text-slate-200',
+      formFieldAction: 'text-cyan-200 hover:text-cyan-100',
+      formButtonSecondary: 'text-slate-200',
+      formButtonPrimary: 'bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-semibold rounded-lg hover:opacity-90 transition',
+      socialButtonsBlockButton: 'bg-white/5 border border-white/10 text-white hover:bg-white/10',
+      dividerLine: 'bg-white/10',
+      dividerText: 'text-slate-200',
+      footerActionText: 'text-slate-100',
+      footerActionLink: 'text-cyan-200 hover:text-cyan-100',
+      footer: 'text-slate-100',
+    },
+  };
+
   const tabs = useMemo(() => ([
     { key: 'Dashboard', path: '/', element: <Dashboard mode={analysisMode} /> },
     { key: 'Pipelines', path: '/pipelines', element: <Pipelines /> },
@@ -68,78 +101,44 @@ export default function App() {
 
   if (!isSignedIn) {
     return (
-      <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-slate-200">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(251,191,36,0.12),transparent_30%),radial-gradient(circle_at_82%_78%,rgba(59,130,246,0.12),transparent_32%),radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.04),transparent_36%)] blur-3xl" />
-        <div className="relative min-h-screen flex items-center justify-center px-6 py-10">
-          <div className="w-full max-w-6xl grid grid-cols-1 gap-12 items-center md:grid-cols-2">
-            <div className="space-y-6">
-              <div className="inline-flex items-center gap-2 text-amber-400 font-semibold tracking-wide">{isSignUp ? 'Join DCPVAS' : 'DCPVAS'}</div>
-              <div className="space-y-3 max-w-xl">
-                <h1 className="text-3xl md:text-4xl font-semibold text-white">{isSignUp ? 'Build, Analyze, and Optimize Your CI/CD Pipelines' : 'DevOps CI/CD Pipeline Visualizer'}</h1>
-                <p className="text-slate-400 text-base">{isSignUp ? 'Visualize pipelines, detect failures instantly, and get AI-powered root cause analysis across every stage.' : 'Real-time pipeline visibility with AI-driven failure analysis and deep Jenkins integration, tailored for modern DevOps teams.'}</p>
-              </div>
-              {isSignUp ? (
-                <div className="space-y-4">
-                  <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-md space-y-2">
-                    <div className="text-xs text-slate-400">Pipeline Visualization</div>
-                    <div className="text-lg font-semibold text-white">Commit → Build → Test → Deploy</div>
-                    <div className="flex items-center gap-2 text-xs text-slate-300">
-                      <span className="text-amber-300">●</span>
-                      <span className="flex-1 h-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400" />
-                      <span className="text-emerald-300">●</span>
-                    </div>
-                    <div className="text-xs text-slate-400">Track every stage from commit to deployment.</div>
-                  </div>
-                  <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-md space-y-2">
-                    <div className="text-xs text-slate-400">AI Failure Detection</div>
-                    <div className="text-lg font-semibold text-white">Error detected → Fix suggested</div>
-                    <div className="inline-flex items-center gap-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-full px-3 py-1">Build stage anomaly</div>
-                    <div className="text-xs text-emerald-300">Smart insight: retry with cache purge</div>
-                  </div>
-                  <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-md space-y-2">
-                    <div className="text-xs text-slate-400">Live Monitoring</div>
-                    <div className="text-lg font-semibold text-white">Real-time build tracking</div>
-                    <div className="inline-flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1">Success · Zero delay</div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-md space-y-1">
-                      <div className="text-xs text-slate-400">Realtime Pipeline</div>
-                      <div className="text-lg font-semibold text-white">Build #248 running</div>
-                      <div className="inline-flex items-center gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-full px-3 py-1">Deploy 92%</div>
-                    </div>
-                    <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-md space-y-1">
-                      <div className="text-xs text-slate-400">AI Root Cause</div>
-                      <div className="text-lg font-semibold text-white">Issue detected in build stage</div>
-                      <div className="inline-flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1">Resolved in 1.2m</div>
-                    </div>
-                  </div>
-                  <div className="space-y-2 text-sm text-slate-200">
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)]" />Real-time monitoring</div>
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)]" />AI-powered analysis</div>
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)]" />Jenkins integration</div>
-                  </div>
-                </>
-              )}
+      <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-[#020617] via-[#030b2a] to-[#030712] text-white overflow-hidden px-6 py-10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.18),transparent_40%),radial-gradient(circle_at_80%_80%,rgba(139,92,246,0.18),transparent_42%),radial-gradient(circle_at_50%_40%,rgba(34,211,238,0.14),transparent_38%)] blur-3xl" />
+        <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,rgba(255,255,255,0.04)_0%,rgba(255,255,255,0)_40%),linear-gradient(300deg,rgba(255,255,255,0.04)_0%,rgba(255,255,255,0)_45%)]" />
+
+        <div className="relative z-10 w-full max-w-6xl grid grid-cols-1 gap-10 items-center md:grid-cols-2">
+          <div className="space-y-6">
+            <div className="inline-flex items-center gap-2 text-cyan-300 font-semibold tracking-wide bg-white/5 border border-white/10 px-3 py-1 rounded-full backdrop-blur">
+              <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.8)]" />
+              {isSignUp ? 'Join DCPVAS' : 'Welcome back to DCPVAS'}
             </div>
-            <div className="flex justify-center md:justify-end">
+            <div className="space-y-3 max-w-xl">
+              <h1 className="text-3xl md:text-4xl font-semibold leading-tight text-white">
+                {isSignUp ? 'Build, analyze, and secure your CI/CD pipelines with AI.' : 'AI-native DevOps cockpit for pipelines, failures, and insights.'}
+              </h1>
+              <p className="text-slate-300 text-base">
+                Debug faster with AI-assisted triage, neon-clear dashboards, and zero-click root cause suggestions tailored for modern delivery teams.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
+                <div className="text-xs text-cyan-200/80">Live Pipelines</div>
+                <div className="text-lg font-semibold text-white">Deploy · Test · Verify</div>
+                <div className="mt-2 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 shadow-[0_0_16px_rgba(56,189,248,0.6)]" />
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
+                <div className="text-xs text-purple-200/80">AI Signal</div>
+                <div className="text-lg font-semibold text-white">Root cause in seconds</div>
+                <div className="mt-2 inline-flex items-center gap-2 text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1">Auto fix suggestion</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative w-full max-w-md mx-auto">
+            <div className="absolute -inset-6 rounded-[28px] bg-[radial-gradient(circle_at_30%_20%,rgba(34,211,238,0.22),transparent_40%),radial-gradient(circle_at_80%_60%,rgba(139,92,246,0.18),transparent_40%)] blur-3xl" />
+            <div className="relative z-10">
               {isSignUp ? (
                 <SignUp
-                  appearance={{
-                    elements: {
-                      rootBox: 'w-full max-w-md',
-                      card: 'bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-8 space-y-6',
-                      headerTitle: 'text-white text-2xl font-semibold',
-                      headerSubtitle: 'text-slate-400 text-sm mt-1',
-                      formFieldLabel: 'text-slate-300 text-sm font-medium',
-                      formFieldInput: 'bg-slate-800 text-white placeholder:text-slate-400 border border-slate-600 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-500 focus:ring-offset-0 focus:outline-none transition-colors',
-                      formButtonPrimary: 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-semibold rounded-lg py-2.5 shadow-lg shadow-purple-500/25 hover:brightness-110 transition-all duration-200',
-                      socialButtonsBlockButton: 'bg-slate-800 text-white border border-slate-600 rounded-lg py-2.5 hover:bg-slate-700 transition-all duration-200',
-                      footerActionLink: 'text-amber-400 hover:text-amber-300 transition-colors font-medium',
-                    },
-                  }}
+                  appearance={authAppearance}
                   routing="path"
                   path="/sign-up"
                   afterSignInUrl="/"
@@ -147,19 +146,7 @@ export default function App() {
                 />
               ) : (
                 <SignIn
-                  appearance={{
-                    elements: {
-                      rootBox: 'w-full max-w-md',
-                      card: 'bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl p-8 space-y-6',
-                      headerTitle: 'text-white text-2xl font-semibold',
-                      headerSubtitle: 'text-slate-400 text-sm mt-1',
-                      formFieldLabel: 'text-slate-300 text-sm font-medium',
-                      formFieldInput: 'bg-slate-800 text-white placeholder:text-slate-400 border border-slate-600 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-500 focus:ring-offset-0 focus:outline-none transition-colors',
-                      formButtonPrimary: 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-semibold rounded-lg py-2.5 shadow-lg shadow-amber-500/25 hover:brightness-110 transition-all duration-200',
-                      socialButtonsBlockButton: 'bg-slate-800 text-white border border-slate-600 rounded-lg py-2.5 hover:bg-slate-700 transition-all duration-200',
-                      footerActionLink: 'text-amber-400 hover:text-amber-300 transition-colors font-medium',
-                    },
-                  }}
+                  appearance={authAppearance}
                   routing="path"
                   path="/"
                   afterSignInUrl="/"
