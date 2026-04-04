@@ -8,6 +8,7 @@ const api = axios.create({
 });
 
 export const API_BASE_URL = apiBase;
+export { api };
 
 export async function getJenkinsSettings() {
   const { data } = await api.get('/settings/jenkins');

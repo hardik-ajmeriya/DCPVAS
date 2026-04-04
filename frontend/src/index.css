@@ -5,7 +5,38 @@
 
 
 /* Basic layout helpers */
-html, body, #root { height: 100%; }
+html, body, #root {
+	height: 100%;
+}
+
+html, body {
+	overflow: hidden; /* Lock body scroll; only app containers should scroll */
+}
+
+/* Premium global scrollbars */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: rgba(148,163,184,0.3) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: rgba(148, 163, 184, 0.3);
+	border-radius: 999px;
+	backdrop-filter: blur(4px);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+	background: rgba(148, 163, 184, 0.6);
+}
 
 /* Theme variables */
 :root.theme-light {

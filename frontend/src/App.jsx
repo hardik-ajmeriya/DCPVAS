@@ -10,13 +10,7 @@ import Settings from './pages/Settings.jsx';
 import History from './pages/History.jsx';
 import BuildDetails from './pages/BuildDetails.jsx';
 import Failures from './pages/Failures.jsx';
-import { useLatestBuildQuery } from './services/queries.js';
-
-function LatestLogs() {
-  const { data } = useLatestBuildQuery();
-  const n = Number(data?.buildNumber);
-  return <BuildDetails buildNumber={Number.isFinite(n) ? n : undefined} />;
-}
+import LogsPage from './pages/LogsPage.jsx';
 
 export default function App() {
   const [analysisMode, setAnalysisMode] = useState('Rule-Based');
@@ -64,7 +58,7 @@ export default function App() {
     { key: 'Execution History', path: '/history', element: <History /> },
     { key: 'Failures', path: '/failures', element: <Failures /> },
     { key: 'AI Insights', path: '/insights', element: <AIInsights /> },
-    { key: 'Logs', path: '/logs', element: <LatestLogs /> },
+    { key: 'Logs', path: '/logs', element: <LogsPage /> },
     { key: 'Settings', path: '/settings', element: (
       <Settings
         mode={analysisMode}
@@ -161,19 +155,26 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
-      <Topbar currentTab={currentTab} onSelect={handleSelect} />
-      <div className="flex flex-1">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      {/* Fixed navbar */}
+      <header className="fixed top-0 left-0 w-full h-16 z-50 border-b border-white/10 bg-slate-950/90 backdrop-blur">
+        <Topbar currentTab={currentTab} onSelect={handleSelect} />
+      </header>
+
+      {/* Fixed sidebar */}
+      <aside className="fixed top-16 left-0 h-[calc(100vh-64px)] w-64 z-40 border-r border-white/10 bg-[var(--bg-secondary)]">
         <Sidebar currentTab={currentTab} onSelect={handleSelect} />
-        <main className="flex-1 p-4 overflow-auto">
-          <Routes>
-            {tabs.map(({ key, path, element }) => (
-              <Route key={key} path={path} element={element} />
-            ))}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
-      </div>
+      </aside>
+
+      {/* Scrollable main content */}
+      <main className="ml-64 mt-16 h-[calc(100vh-64px)] overflow-y-auto">
+        <Routes>
+          {tabs.map(({ key, path, element }) => (
+            <Route key={key} path={path} element={element} />
+          ))}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
     </div>
   );
 }
