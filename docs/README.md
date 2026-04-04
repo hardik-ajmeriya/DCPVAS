@@ -256,3 +256,10 @@ Add screenshots to `docs/screenshots/` and link here:
 ## Contribution
 
 This is a proprietary project; contributions are generally closed. For internal work, branch from `main`, open a PR with context and testing notes.
+
+## Latest Completed Work (April 2026)
+
+- **Logs + AI Analysis Workspace**: Added a dedicated `/logs` page with a three-column layout (build history list, live log viewer, and AI analysis panel) backed by `/api/pipeline/history`, `/api/pipeline/logs/:number`, and `/api/pipeline/build/:number`.
+- **Smart Debugging UI**: Converted raw AI analysis into a structured "debugging assistant" experience including TL;DR issue summary, Quick Fix (copy-to-clipboard), collapsible deep-dive sections, and a color-coded confidence bar.
+- **Premium SaaS Styling**: Introduced glassmorphism cards, subtle glows, hover/active transitions, and thin global scrollbars so the logs workspace visually matches modern tools like Linear/GitHub/Vercel.
+- **Single-Scroll Layout**: Refined the app shell so the navbar and sidebar remain fixed while only the main content area scrolls, eliminating double scrollbars and keeping the Logs workspace focused and stable.
