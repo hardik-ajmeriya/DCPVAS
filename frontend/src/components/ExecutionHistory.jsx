@@ -23,7 +23,7 @@ export default function ExecutionHistory({ history, onSelect, onOpenLogs }) {
               )}
               <button
                 onClick={() => onOpenLogs?.(h)}
-                className="px-2 py-1 text-xs rounded bg-black text-white hover:bg-neutral"
+                className="px-2 py-1 text-xs rounded bg-gray-900 text-gray-50 hover:bg-gray-800 dark:bg-black dark:text-white dark:hover:bg-neutral"
                 aria-label="Open terminal logs"
               >
                 Terminal

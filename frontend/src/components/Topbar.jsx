@@ -12,7 +12,9 @@ export default function Topbar({ currentTab, onSelect }) {
   }, [isConnected, jobName, warning]);
 
   const statusTitle = isConnected ? (jobName ? `Connected to ${jobName}` : 'Jenkins Connected') : 'Unable to reach Jenkins server. Check configuration.';
-  const statusColor = isConnected ? 'bg-green-600' : 'bg-amber-600';
+  const statusClasses = isConnected
+    ? 'bg-green-100 dark:bg-green-600 text-green-800 dark:text-white'
+    : 'bg-amber-100 dark:bg-amber-600 text-amber-800 dark:text-white';
 
   return (
     <div className="nav-blur flex items-center justify-between px-4 py-3">
@@ -24,17 +26,17 @@ export default function Topbar({ currentTab, onSelect }) {
       {/* Center search */}
       <div className="flex items-center gap-2 w-full max-w-xl">
         <div className="relative flex-1">
-          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search pipelines…"
-            className="w-full pl-10 pr-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-sm"
+            className="w-full pl-10 pr-3 py-2 rounded-lg bg-gray-100 dark:bg-[var(--bg-primary)] border border-gray-200 dark:border-[var(--border-color)] text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/40 transition-all duration-200 ease-in-out"
           />
         </div>
       </div>
       {/* Right side: Jenkins badge, notifications, avatar */}
       <div className="flex items-center gap-3">
-        <span className={`px-3 py-1 rounded-full text-xs text-white ${statusColor}`} title={statusTitle}>{statusText}</span>
+        <span className={`px-3 py-1 rounded-full text-xs ${statusClasses}`} title={statusTitle}>{statusText}</span>
         <button className="p-2 rounded-lg hover-surface" title="Notifications">
           <BellIcon className="w-5 h-5" />
         </button>

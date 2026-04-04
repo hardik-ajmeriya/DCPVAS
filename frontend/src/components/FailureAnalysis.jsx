@@ -214,10 +214,10 @@ export default function FailureAnalysis({ run }) {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-3 py-2 rounded text-sm ${
+            className={`px-3 py-2 rounded text-sm transition-all duration-200 ease-in-out ${
               tab === t
-                ? 'bg-neutral text-white'
-                : 'bg-gray-100 hover:bg-gray-200'
+                ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+                : 'bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/10'
             }`}
           >
             {t}

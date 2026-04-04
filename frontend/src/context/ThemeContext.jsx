@@ -18,8 +18,12 @@ export function ThemeProvider({ children }) {
     try { localStorage.setItem('theme', theme); } catch {}
     const root = document.documentElement; // <html>
     // Remove previous classes, add current
-    root.classList.remove('theme-light', 'theme-dark');
-    root.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light');
+    root.classList.remove('theme-light', 'theme-dark', 'dark');
+    if (theme === 'dark') {
+      root.classList.add('theme-dark', 'dark');
+    } else {
+      root.classList.add('theme-light');
+    }
   }, [theme]);
 
   const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));

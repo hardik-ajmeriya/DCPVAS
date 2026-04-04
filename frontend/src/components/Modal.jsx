@@ -28,12 +28,12 @@ export default function Modal({ isOpen, onClose, title, children, closeOnOverlay
       <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.35)' }} />
       {/* modal container */}
       <div
-        className="relative bg-white rounded-lg shadow-lg w-[60vw] max-w-[1000px] max-h-[80vh] overflow-y-auto p-4"
+        className="relative bg-white dark:bg-[#020617] border border-gray-200 dark:border-white/10 rounded-lg shadow-sm dark:shadow-lg w-[60vw] max-w-[1000px] max-h-[80vh] overflow-y-auto p-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-2">
-          <div className="font-semibold text-lg">{title}</div>
-          <button type="button" className="px-2 py-1 rounded border" onClick={onClose} aria-label="Close">
+          <div className="font-semibold text-lg text-gray-900 dark:text-white">{title}</div>
+          <button type="button" className="px-2 py-1 rounded border border-gray-300 dark:border-white/20 text-gray-700 dark:text-gray-200 bg-white dark:bg-transparent" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>

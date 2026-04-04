@@ -444,9 +444,9 @@ export default function Dashboard({ mode }) {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-lg font-semibold">{buildData.jobName || 'Pipeline'}</div>
-                      <div className="text-xs text-gray-400">Build #{buildData.buildNumber} • {lastUpdatedLabel || '—'}</div>
+                      <div className="text-xs text-gray-600 dark:text-slate-400">Build #{buildData.buildNumber} • {lastUpdatedLabel || '—'}</div>
                     </div>
-                    <div className="text-xs text-gray-400">Status: {buildData.status || 'UNKNOWN'}</div>
+                    <div className="text-xs text-gray-600 dark:text-slate-400">Status: {buildData.status || 'UNKNOWN'}</div>
                   </div>
                 </div>
               )}

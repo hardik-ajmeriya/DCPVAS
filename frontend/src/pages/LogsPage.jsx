@@ -72,19 +72,19 @@ export default function LogsPage() {
   const effectiveError = useMemo(() => error, [error]);
 
   return (
-  <div className="min-h-full flex flex-col bg-[#020617] text-slate-100 gap-3">
-    <div className="flex items-center justify-between flex-shrink-0">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-[#020617] text-gray-900 dark:text-slate-100 gap-3">
+      <div className="flex items-center justify-between flex-shrink-0">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-50">Pipeline Logs</h1>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-slate-50">Pipeline Logs</h1>
+          <p className="text-xs text-gray-600 dark:text-slate-400 mt-0.5">
             Inspect CI/CD console output, triage failures, and trace execution history.
           </p>
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 gap-3">
-        <div className="w-full md:w-1/4 lg:w-1/5 min-h-0 overflow-y-auto">
-          <div className="min-h-full bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
+      <div className="flex flex-1 min-h-0 gap-3 overflow-hidden">
+        <div className="w-full md:w-1/4 lg:w-1/5 min-h-0 h-full overflow-y-auto">
+          <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
             <BuildList
               builds={builds}
               selectedBuild={selectedBuild}
@@ -94,8 +94,8 @@ export default function LogsPage() {
             />
           </div>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="min-h-full bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
+        <div className="flex-1 min-h-0 h-full overflow-y-auto">
+          <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
             <LogsViewer
               logs={logs}
               loading={loading}
@@ -104,8 +104,8 @@ export default function LogsPage() {
             />
           </div>
         </div>
-        <div className="w-1/4 min-h-0 overflow-y-auto hidden md:block">
-          <div className="min-h-full bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
+        <div className="w-1/4 min-h-0 h-full overflow-y-auto hidden md:block">
+          <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
             <AIAnalysisPanel
               selectedBuild={selectedBuild}
               buildData={buildData}

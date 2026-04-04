@@ -13,18 +13,25 @@ const items = [
 
 export default function Sidebar({ currentTab, onSelect }) {
   return (
-    <aside className="w-64 border-r border-[var(--border-color)] bg-[var(--bg-secondary)]">
+    <aside className="w-64 border-r border-gray-200 dark:border-white/10 bg-white dark:bg-[#020617]">
       <nav className="flex flex-col py-4">
-        {items.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => onSelect(key)}
-            className={`flex items-center gap-3 px-4 py-3 text-left hover-surface ${currentTab === key ? 'active-surface' : ''}`}
-          >
-            <Icon className="w-5 h-5 text-gray-400" />
-            <span className="text-sm">{label}</span>
-          </button>
-        ))}
+        {items.map(({ key, label, icon: Icon }) => {
+          const isActive = currentTab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => onSelect(key)}
+              className={`group relative flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 ease-in-out
+                ${isActive
+                  ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 font-medium border-l-4 border-blue-500'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-white'}
+              `}
+            >
+              <Icon className="w-5 h-5 text-gray-500 group-hover:text-blue-500" />
+              <span className="text-sm">{label}</span>
+            </button>
+          );
+        })}
       </nav>
     </aside>
   );
