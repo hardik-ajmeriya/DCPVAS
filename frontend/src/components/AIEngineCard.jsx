@@ -4,7 +4,7 @@ export default function AIEngineCard({ stats }) {
     <div className="card-surface">
       <div className="flex items-center justify-between">
         <div className="font-semibold">AI Engine</div>
-        <span className={`px-2 py-1 rounded-full text-xs ${modelOnline ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>{modelOnline ? 'Online' : 'Offline'}</span>
+        <span className={`px-2 py-1 rounded-full text-xs text-gray-900 dark:text-white ${modelOnline ? 'bg-green-100 dark:bg-green-600' : 'bg-red-100 dark:bg-red-600'}`}>{modelOnline ? 'Online' : 'Offline'}</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
         <Stat label="Analyzed Today" value={analyzedToday} />
@@ -19,7 +19,7 @@ export default function AIEngineCard({ stats }) {
 function Stat({ label, value }) {
   return (
     <div className="p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-      <div className="text-xs text-gray-400">{label}</div>
+      <div className="text-xs text-gray-600 dark:text-gray-400">{label}</div>
       <div className="text-lg font-semibold mt-1">{value}</div>
     </div>
   );

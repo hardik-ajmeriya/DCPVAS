@@ -19,7 +19,7 @@ const STATUS_META = {
   success: {
     label: 'SUCCESS',
     dot: 'bg-green-500',
-    text: 'text-green-200',
+    text: 'text-emerald-600 dark:text-green-200',
     shadow: 'shadow-green-500/40',
     chip: 'bg-green-500/15 text-green-200 border border-green-500/25',
     ring: 'ring-green-400/40',
@@ -27,7 +27,7 @@ const STATUS_META = {
   failed: {
     label: 'FAILED',
     dot: 'bg-red-500',
-    text: 'text-red-200',
+    text: 'text-red-600 dark:text-red-200',
     shadow: 'shadow-red-500/40',
     chip: 'bg-red-500/15 text-red-200 border border-red-500/25',
     ring: 'ring-red-400/35',
@@ -35,7 +35,7 @@ const STATUS_META = {
   running: {
     label: 'RUNNING',
     dot: 'bg-yellow-400',
-    text: 'text-yellow-100',
+    text: 'text-amber-600 dark:text-yellow-100',
     shadow: 'shadow-yellow-400/40',
     chip: 'bg-yellow-400/15 text-yellow-100 border border-yellow-300/30',
     ring: 'ring-yellow-300/40',
@@ -43,7 +43,7 @@ const STATUS_META = {
   pending: {
     label: 'PENDING',
     dot: 'bg-gray-600',
-    text: 'text-gray-300',
+    text: 'text-gray-600 dark:text-gray-300',
     shadow: 'shadow-gray-500/30',
     chip: 'bg-gray-600/15 text-gray-300 border border-gray-500/20',
     ring: 'ring-gray-400/30',
@@ -160,13 +160,13 @@ export default function PipelineFlow() {
   }, [normalizedStages]);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-slate-900/70 backdrop-blur-xl shadow-2xl">
-      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-slate-800/30 to-emerald-500/10" aria-hidden />
+    <div className="relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/70 backdrop-blur-xl shadow-2xl">
+      <div className="absolute inset-0 dark:bg-gradient-to-br dark:from-indigo-500/10 dark:via-slate-800/30 dark:to-emerald-500/10" aria-hidden />
       <div className="relative p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-100">Pipeline Flow</span>
+              <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">Pipeline Flow</span>
               <motion.span
                 layout
                 className={`text-[10px] px-2 py-1 rounded-full uppercase tracking-[0.12em] ${overallStyle.chip}`}
@@ -174,10 +174,10 @@ export default function PipelineFlow() {
                 {overallStyle.label}
               </motion.span>
             </div>
-            <div className="text-xs text-slate-400 flex items-center gap-2">
+            <div className="text-xs text-gray-600 dark:text-slate-400 flex items-center gap-2">
               <span>{buildNumber ? `Build #${buildNumber}` : 'Latest build'}</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-slate-300">Duration {formatDuration(durationMs)}</span>
+              <span className="text-gray-400 dark:text-slate-600">•</span>
+              <span className="text-gray-700 dark:text-slate-300">Duration {formatDuration(durationMs)}</span>
             </div>
           </div>
           {jenkinsUrl && (
@@ -185,7 +185,7 @@ export default function PipelineFlow() {
               href={jenkinsUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-slate-100 hover:border-white/20 hover:bg-white/10 transition-colors backdrop-blur"
+              className="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-900 dark:text-slate-100 hover:bg-gray-50 dark:hover:border-white/20 dark:hover:bg-white/10 transition-colors backdrop-blur"
             >
               View in Jenkins ↗
             </a>
@@ -193,21 +193,21 @@ export default function PipelineFlow() {
         </div>
 
         {loading && (
-          <div className="flex items-center gap-3 text-sm text-slate-300/80">
-            <div className="w-3 h-3 rounded-full bg-slate-500 animate-pulse" />
+          <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-slate-300/80">
+            <div className="w-3 h-3 rounded-full bg-gray-400 dark:bg-slate-500 animate-pulse" />
             <span>Loading latest pipeline flow...</span>
           </div>
         )}
 
         {!loading && !normalizedStages.length && (
-          <div className="text-sm text-slate-400">No stage data available for the latest build.</div>
+          <div className="text-sm text-gray-600 dark:text-slate-400">No stage data available for the latest build.</div>
         )}
 
         {!loading && !!normalizedStages.length && (
           <div className="relative overflow-x-auto pb-4">
             <div className="min-w-[720px] px-1">
               <div className="relative flex items-center justify-between gap-6">
-                <div className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-slate-700/60" aria-hidden />
+                <div className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-gray-200 dark:bg-slate-700/60" aria-hidden />
                 <motion.div
                   className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-gradient-to-r from-green-500 via-yellow-400 to-gray-600"
                   initial={{ width: '0%' }}
@@ -285,7 +285,7 @@ export default function PipelineFlow() {
                       <motion.div
                         whileHover={{ scale: 1.05 }}
                         animate={{ scale: isActive ? 1.1 : 1, boxShadow: isActive ? style.shadow : 'none' }}
-                        className={`relative w-14 h-14 rounded-full flex items-center justify-center border border-white/10 bg-slate-900/70 shadow-md transition-all duration-300 ring-2 ${style.ring} ${isRunning ? 'animate-pulse' : ''} text-slate-100 ${
+                        className={`relative w-14 h-14 rounded-full flex items-center justify-center border border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900/70 shadow-md transition-all duration-300 ring-2 ${style.ring} ${isRunning ? 'animate-pulse' : ''} text-gray-900 dark:text-slate-100 ${
                           isRunning ? 'scale-[1.05]' : ''
                         }`}
                       >
@@ -301,12 +301,12 @@ export default function PipelineFlow() {
                         <div
                           className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center shadow-sm ${
                             isSuccess
-                              ? 'bg-green-500 text-slate-950'
+                              ? 'bg-green-500 text-white dark:text-slate-950'
                               : isFailed
                                 ? 'bg-red-500 text-white'
                                 : isRunning
-                                  ? 'bg-yellow-300 text-slate-950'
-                                  : 'bg-slate-800 text-slate-200'
+                                  ? 'bg-yellow-300 text-slate-900'
+                                  : 'bg-gray-200 text-gray-700 dark:bg-slate-800 dark:text-slate-200'
                           }`}
                         >
                           {statusBadge}
@@ -314,7 +314,7 @@ export default function PipelineFlow() {
                       </motion.div>
 
                       <div className="flex flex-col items-center text-center">
-                        <span className="text-sm font-medium text-slate-100 leading-tight">{stage.name}</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-slate-100 leading-tight">{stage.name}</span>
                         <span className={`text-[11px] mt-1 tracking-wide ${style.text}`}>{style.label}</span>
                       </div>
 

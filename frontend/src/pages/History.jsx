@@ -189,7 +189,7 @@ export default function History() {
 
                   <div className="flex items-center justify-end">
                     <button
-                      className="px-3 py-1 rounded bg-black text-white text-xs hover:bg-neutral"
+                      className="px-3 py-1 rounded bg-gray-900 text-gray-50 text-xs hover:bg-gray-800 dark:bg-black dark:text-white dark:hover:bg-neutral"
                       onClick={() => viewBuild(r)}
                     >
                       View

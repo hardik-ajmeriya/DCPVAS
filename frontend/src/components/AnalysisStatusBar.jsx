@@ -24,10 +24,10 @@ export default function AnalysisStatusBar({ stage = 'fetch_logs', skipped = fals
   const isTerminal = normalizedStage === 'completed' || isSkipped;
 
   return (
-    <div className={`rounded-xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg ${className}`}>
+    <div className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 shadow-lg ${className}`}>
       <div className="flex items-center justify-between mb-3">
-        <div className="text-sm font-semibold text-slate-100">AI Analysis Status</div>
-        <div className="text-xs text-slate-400 capitalize">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">AI Analysis Status</div>
+        <div className="text-xs text-gray-600 dark:text-slate-400 capitalize">
           {isSkipped ? 'AI analysis skipped (pipeline successful)' : (normalizedStage || 'pending')}
         </div>
       </div>
@@ -40,15 +40,15 @@ export default function AnalysisStatusBar({ stage = 'fetch_logs', skipped = fals
           const isDone = terminalDone || skippedStep || order < current || (order === current && (step.key === 'completed' || step.key === 'store_results') && !isSkipped);
           const isRunning = !isTerminal && order === current && !isDone && !skippedStep;
           const icon = isRunning
-            ? <Loader2 className="w-5 h-5 animate-spin text-amber-300" />
-            : <Icon className={`w-5 h-5 ${isDone ? 'text-emerald-300' : 'text-slate-200'}`} />;
+            ? <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+            : <Icon className={`w-5 h-5 ${isDone ? 'text-emerald-500 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-200'}`} />;
 
           return (
-            <div key={step.key} className="flex items-center gap-3 rounded-lg border border-slate-800/70 bg-slate-800/50 px-3 py-2">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDone ? 'bg-emerald-500/10 border border-emerald-400/40' : 'bg-slate-900/70 border border-slate-700/70'}`}>
+            <div key={step.key} className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-slate-800/70 bg-gray-50 dark:bg-slate-800/50 px-3 py-2">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDone ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-400/40' : 'bg-white dark:bg-slate-900/70 border border-gray-200 dark:border-slate-700/70'}`}>
                 {icon}
               </div>
-              <div className="text-sm text-slate-100">{skippedStep ? 'AI Analysis Skipped' : (isTerminal && step.key === 'completed' && isSkipped ? 'Skipped' : step.label)}</div>
+              <div className="text-sm text-gray-900 dark:text-slate-100">{skippedStep ? 'AI Analysis Skipped' : (isTerminal && step.key === 'completed' && isSkipped ? 'Skipped' : step.label)}</div>
             </div>
           );
         })}

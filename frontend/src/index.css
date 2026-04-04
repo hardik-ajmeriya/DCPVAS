@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+	body {
+		@apply bg-gray-50 dark:bg-[#020617] text-gray-900 dark:text-gray-100;
+	}
+}
+
 
 
 /* Basic layout helpers */
@@ -69,9 +75,7 @@ html, body {
 
 /* Apply theme to page */
 body {
-	background: var(--bg-secondary);
-	color: var(--text-primary);
- 	font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+	font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
 /* Safe overrides to align existing utility usage with theme variables */
@@ -112,13 +116,9 @@ body {
 	border-bottom: 1px solid var(--border-color);
 }
 
-/* Card surface with soft glow */
+/* Card surface: unified light/dark card design */
 .card-surface {
-	background-color: var(--bg-primary);
-	border: 1px solid var(--border-color);
-	border-radius: 16px;
-	box-shadow: 0 0 0 1px rgba(30, 41, 59, 0.4), 0 8px 30px rgba(79, 70, 229, 0.08);
-	padding: 24px;
+	@apply bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-none rounded-2xl p-6 transition-all duration-200 ease-in-out hover:shadow-lg hover:-translate-y-1;
 }
 
 /* Accent gradient utilities */

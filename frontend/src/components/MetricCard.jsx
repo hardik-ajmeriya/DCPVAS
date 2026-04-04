@@ -2,32 +2,32 @@ import React from 'react';
 
 const COLOR_THEMES = {
   indigo: {
-    gradient: 'bg-gradient-to-br from-indigo-500/20 to-purple-500/10',
-    border: 'border-indigo-400/30',
+    gradient: 'dark:bg-gradient-to-br dark:from-indigo-500/20 dark:to-purple-500/10',
+    border: 'border-gray-200 dark:border-indigo-400/30',
     iconColor: 'text-indigo-400',
     strokeClass: 'text-indigo-400',
   },
   cyan: {
-    gradient: 'bg-gradient-to-br from-cyan-500/20 to-blue-500/10',
-    border: 'border-cyan-400/30',
+    gradient: 'dark:bg-gradient-to-br dark:from-cyan-500/20 dark:to-blue-500/10',
+    border: 'border-gray-200 dark:border-cyan-400/30',
     iconColor: 'text-cyan-400',
     strokeClass: 'text-cyan-400',
   },
   red: {
-    gradient: 'bg-gradient-to-br from-red-500/20 to-pink-500/10',
-    border: 'border-red-400/30',
+    gradient: 'dark:bg-gradient-to-br dark:from-red-500/20 dark:to-pink-500/10',
+    border: 'border-gray-200 dark:border-red-400/30',
     iconColor: 'text-red-400',
     strokeClass: 'text-red-400',
   },
   emerald: {
-    gradient: 'bg-gradient-to-br from-emerald-500/20 to-teal-500/10',
-    border: 'border-emerald-400/30',
+    gradient: 'dark:bg-gradient-to-br dark:from-emerald-500/20 dark:to-teal-500/10',
+    border: 'border-gray-200 dark:border-emerald-400/30',
     iconColor: 'text-emerald-400',
     strokeClass: 'text-emerald-400',
   },
   violet: {
-    gradient: 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/10',
-    border: 'border-violet-400/30',
+    gradient: 'dark:bg-gradient-to-br dark:from-violet-500/20 dark:to-fuchsia-500/10',
+    border: 'border-gray-200 dark:border-violet-400/30',
     iconColor: 'text-violet-400',
     strokeClass: 'text-violet-400',
   },
@@ -99,19 +99,19 @@ export default function MetricCard({
 
   return (
     <div
-      className={`relative rounded-2xl p-6 ${theme.gradient} border ${theme.border} shadow-lg backdrop-blur transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-xl`}
+      className={`relative rounded-2xl p-6 bg-white ${theme.gradient} border ${theme.border} shadow-sm dark:shadow-none transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg`}
     >
       {/* Icon */}
-      <div className={`absolute top-4 right-4 w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center transition-all duration-300 ease-out hover:brightness-110 ${theme.iconColor}`}>
+      <div className={`absolute top-4 right-4 w-9 h-9 rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center transition-all duration-300 ease-out hover:brightness-110 ${theme.iconColor}`}>
         <Icon name={icon} className="w-5 h-5" />
       </div>
 
       {/* Content */}
       <div className="space-y-1">
-        <div className="text-sm text-gray-400">{title}</div>
-        <div className="text-3xl font-bold text-white">
+        <div className="text-sm text-gray-600 dark:text-gray-400">{title}</div>
+        <div className="text-3xl font-bold text-gray-900 dark:text-white">
           {loading ? (
-            <span className="inline-block w-20 h-8 rounded bg-white/10 animate-pulse" />
+            <span className="inline-block w-20 h-8 rounded bg-gray-100 dark:bg-white/10 animate-pulse" />
           ) : (
             <span>{value}</span>
           )}

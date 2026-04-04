@@ -39,12 +39,12 @@ export default function Failures() {
       <div className="card-surface">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-lg font-semibold">All Failures</div>
-            <div className="text-sm text-slate-400">Full failure history across pipelines</div>
+            <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">All Failures</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400">Full failure history across pipelines</div>
           </div>
         </div>
 
-        {loading && <p className="text-sm text-slate-400">Loading…</p>}
+        {loading && <p className="text-sm text-gray-600 dark:text-gray-400">Loading…</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         {!loading && !error && (
@@ -52,7 +52,7 @@ export default function Failures() {
             <div className="overflow-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="text-slate-400">
+                  <tr className="text-gray-600 dark:text-gray-400">
                     <th className="text-left py-2 pr-3">Pipeline</th>
                     <th className="text-left py-2 pr-3">Stage</th>
                     <th className="text-left py-2 pr-3">Failure Time</th>
@@ -65,12 +65,12 @@ export default function Failures() {
                     const status = String(r.status || r.buildStatus || 'UNKNOWN').toUpperCase();
                     const confidence = typeof r.confidenceScore === 'number' ? Math.round(r.confidenceScore * 100) : null;
                     return (
-                      <tr key={r._id || `${r.jobName || 'pipeline'}#${r.buildNumber}`} className="hover-surface">
-                        <td className="py-2 pr-3 font-medium">{r.jobName || 'Pipeline'} #{r.buildNumber}</td>
-                        <td className="py-2 pr-3 text-slate-300">{r.failedStage || r.detectedError || '—'}</td>
-                        <td className="py-2 pr-3 text-slate-400">{r.executedAt ? new Date(r.executedAt).toLocaleString() : '—'}</td>
-                        <td className="py-2 pr-3 text-slate-300">{confidence != null ? `${confidence}%` : '—'}</td>
-                        <td className={`py-2 text-sm ${status === 'FAILURE' || status === 'FAILED' ? 'text-red-400' : 'text-slate-300'}`}>{status}</td>
+                      <tr key={r._id || `${r.jobName || 'pipeline'}#${r.buildNumber}`} className="transition-colors duration-150 hover:bg-gray-50 dark:hover:bg-white/5">
+                        <td className="py-2 pr-3 font-medium text-gray-900 dark:text-gray-100">{r.jobName || 'Pipeline'} #{r.buildNumber}</td>
+                        <td className="py-2 pr-3 text-gray-600 dark:text-gray-300">{r.failedStage || r.detectedError || '—'}</td>
+                        <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">{r.executedAt ? new Date(r.executedAt).toLocaleString() : '—'}</td>
+                        <td className="py-2 pr-3 text-gray-600 dark:text-gray-300">{confidence != null ? `${confidence}%` : '—'}</td>
+                        <td className={`py-2 text-sm ${status === 'FAILURE' || status === 'FAILED' ? 'text-red-500 dark:text-red-400' : 'text-gray-600 dark:text-gray-300'}`}>{status}</td>
                       </tr>
                     );
                   })}
@@ -78,7 +78,7 @@ export default function Failures() {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No failures recorded 🎉</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">No failures recorded 🎉</p>
           )
         )}
       </div>

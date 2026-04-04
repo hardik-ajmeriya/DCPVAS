@@ -22,8 +22,8 @@ export default function Navbar({ currentTab, onSelect }) {
     : 'Unable to reach Jenkins server. Check configuration.';
 
   const statusClasses = isConnected
-    ? 'bg-success text-white'
-    : 'bg-amber-500 text-white';
+    ? 'bg-green-100 dark:bg-success text-green-800 dark:text-white'
+    : 'bg-amber-100 dark:bg-amber-500 text-amber-800 dark:text-white';
 
   const statusIcon = isConnected ? '✓' : '⚠';
 
@@ -43,11 +43,11 @@ export default function Navbar({ currentTab, onSelect }) {
         {tabs.map(({ key, icon: Icon }) => (
           <button
             key={key}
-            className={`px-3 py-2 rounded flex items-center gap-2 ${currentTab === key ? 'bg-neutral text-white' : 'hover-surface'}`}
+            className={`group px-3 py-2 rounded flex items-center gap-2 transition-all duration-200 ease-in-out ${currentTab === key ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 font-medium border-l-4 border-blue-500' : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-white'}`}
             onClick={() => onSelect(key)}
             aria-label={key}
           >
-            <Icon className="w-5 h-5" />
+            <Icon className="w-5 h-5 text-gray-500 group-hover:text-blue-500" />
             <span className="hidden sm:inline">{key}</span>
           </button>
         ))}

@@ -47,7 +47,7 @@ export default function FailureTimeline({ items = [], onOpenLogs, onSelect }) {
               )}
             </button>
             <div className="pt-1">
-              <button onClick={() => onOpenLogs?.(it)} className="px-2 py-1 text-xs rounded bg-black text-white hover:bg-neutral">Terminal</button>
+              <button onClick={() => onOpenLogs?.(it)} className="px-2 py-1 text-xs rounded bg-gray-900 text-gray-50 hover:bg-gray-800 dark:bg-black dark:text-white dark:hover:bg-neutral">Terminal</button>
             </div>
           </div>
         ))}
