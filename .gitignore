@@ -45,7 +45,9 @@ coverage/
 .eslintcache
 .cache/
 tmp/
+# Ignore generic logs, but allow React components under frontend/src/components/logs
 logs/
+!frontend/src/components/logs/
 
 # Docs screenshots (keep curated ones tracked)
 docs/screenshots/Screenshot*.png
