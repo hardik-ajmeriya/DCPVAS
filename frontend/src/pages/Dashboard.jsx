@@ -146,7 +146,7 @@ export default function Dashboard({ mode }) {
       setError('Failed to load latest');
       setLoading(false);
     }
-  }, [apiBase, fetchAnalysisStatus]);
+  }, [fetchAnalysisStatus]);
 
   // Initial fetch to avoid stale UI on first render
   useEffect(() => {
@@ -228,7 +228,7 @@ export default function Dashboard({ mode }) {
       eventSourceRef.current = null;
       setTimeout(() => {
         if (connected && !eventSourceRef.current) {
-          const retry = new EventSource(`${apiBase.replace(/\/$/, '')}/events/pipeline-stream`);
+          const retry = new EventSource(createApiPath('events/pipeline-stream'));
           eventSourceRef.current = retry;
           retry.onmessage = es.onmessage;
           retry.onerror = es.onerror;
@@ -240,7 +240,7 @@ export default function Dashboard({ mode }) {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [connected, apiBase, syncLatestPipeline, fetchAnalysisStatus]);
+  }, [connected, syncLatestPipeline, fetchAnalysisStatus]);
 
   // Dashboard metrics: fetch on mount, refresh every 20s, and on live events
   useEffect(() => {
