@@ -1,16 +1,16 @@
-import { getLatestPipelineStages, getPipelineStagesForBuild, isLiveEnabled } from "../services/jenkinsService.js";
+import { getLatestPipelineStages, getPipelineStagesForBuild, isLiveEnabled, getLatestPipelineFlowWithSync } from "../services/jenkinsService.js";
 import {
   getLatestWithAnalysis,
   getHistory,
   getBuildWithAnalysis,
   getRawLogs,
   getFailuresTimeline,
+  getLatestFailures,
   reanalyzeBuild,
 } from "../services/pipelineDataService.js";
 import { analyzeCleanedLogsStrict } from "../services/openaiService.js";
 import { cleanJenkinsLogs } from "../services/logSanitizer.js";
 import { decodeJenkinsConsole } from "../services/logDecoder.js";
-import { getLatestPipelineRun } from "../services/pipelineService.js";
 import PipelineAIAnalysis from "../models/PipelineAIAnalysis.js";
 const ANALYSIS_STAGE = {
   FETCH_LOGS: 1,
@@ -23,17 +23,60 @@ const ANALYSIS_STAGE = {
 
 export async function getLatestPipeline(req, res) {
   try {
-    console.log("Fetching latest pipeline run via reconstruction");
-    const latestRun = await getLatestPipelineRun();
+    console.log("Fetching latest pipeline run from Mongo (PipelineRawLog + AI)");
+    const combined = await getLatestWithAnalysis();
 
-    if (!latestRun) {
-      return res.json({ success: true, data: null, message: "No pipeline executions yet" });
+    if (!combined) {
+      return res.json({
+        success: true,
+        data: null,
+        message: "No pipeline executions yet",
+      });
     }
 
-    return res.json({ success: true, data: latestRun });
+    const { raw, ai } = combined;
+    const building = !!raw?.building || raw?.buildStatus === 'BUILDING';
+    const status = raw?.status || (building ? 'RUNNING' : 'UNKNOWN');
+
+    const base = {
+      jobName: raw?.jobName || null,
+      buildNumber: raw?.buildNumber ?? null,
+      status,
+      buildStatus: raw?.buildStatus || (building ? 'BUILDING' : 'COMPLETED'),
+      building,
+      stages: Array.isArray(raw?.stages) ? raw.stages : [],
+      executedAt: raw?.executedAt || raw?.createdAt || null,
+      logsFinal: !!raw?.logsFinal,
+      analysisStatus: raw?.analysisStatus || ai?.analysisStatus || null,
+      progress: (ai?.stage || ai?.analysisStep || raw?.analysisStatus || '').toLowerCase() || null,
+      consoleUrl: raw?.consoleUrl || null,
+      branch: raw?.branch || null,
+      commit: raw?.commit || null,
+      durationSeconds: Number.isFinite(raw?.durationSeconds) ? raw.durationSeconds : null,
+    };
+
+    const ready = !!ai && (ai.analysisStatus === 'COMPLETED' || ai.analysisRunStatus === 'COMPLETED');
+    const withAi = ready
+      ? {
+          ...base,
+          failedStage: ai.failedStage ?? null,
+          detectedError: ai.detectedError ?? null,
+          humanSummary: ai.humanSummary ?? null,
+          suggestedFix: ai.suggestedFix ?? null,
+          technicalRecommendation: ai.technicalRecommendation ?? null,
+          confidenceScore: typeof ai.confidenceScore === 'number' ? ai.confidenceScore : null,
+          finalResult: ai.finalResult ?? null,
+        }
+      : base;
+
+    return res.json({ success: true, data: withAi });
   } catch (e) {
     console.error("Failed to fetch latest pipeline:", e?.message || e);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Pipeline retrieval failed",
+      data: null,
+    });
   }
 }
 
@@ -126,7 +169,9 @@ export async function getPipelineStages(req, res) {
 
 export async function getLatestPipelineFlow(req, res) {
   try {
-    const flow = await getLatestPipelineStages();
+    // Fetch latest build from Jenkins, persist it into Mongo, trigger AI if needed,
+    // and return a normalized flow object for the frontend.
+    const flow = await getLatestPipelineFlowWithSync();
     console.log('[getLatestPipelineFlow] response:', flow);
     return res.json(flow);
   } catch (e) {
@@ -248,12 +293,12 @@ export function getDiagnostics(req, res) {
 export async function getFailureTimeline(req, res) {
   try {
     const { limit } = req.query;
-    const lim = typeof limit === "string" && limit.toLowerCase() === "all" ? "all" : Number(limit) || 25;
-    const timeline = await getFailuresTimeline(lim);
-    return res.json({ timeline });
+    const lim = Number(limit) || 5;
+    const failures = await getLatestFailures(lim);
+    return res.json({ failures });
   } catch (e) {
-    console.error("Failed to compute failure timeline:", e?.message || e);
-    return res.status(502).json({ error: "Failed to compute failure timeline" });
+    console.error("Failed to fetch latest failures:", e?.message || e);
+    return res.status(502).json({ error: "Failed to fetch latest failures", failures: [] });
   }
 }
 

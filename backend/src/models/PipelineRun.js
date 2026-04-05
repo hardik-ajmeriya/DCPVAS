@@ -5,6 +5,13 @@ const PipelineRunSchema = new mongoose.Schema(
     jobName: { type: String, required: true, trim: true },
     buildNumber: { type: Number, required: true },
     status: { type: String, enum: ['SUCCESS', 'FAILURE', 'ABORTED', 'UNKNOWN'], required: true, default: 'UNKNOWN' },
+    stages: [
+      {
+        name: { type: String, required: true },
+        status: { type: String, required: true },
+        durationMs: { type: Number, default: 0 },
+      },
+    ],
     duration: { type: Number, default: null }, // milliseconds
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
@@ -12,6 +19,8 @@ const PipelineRunSchema = new mongoose.Schema(
     humanSummary: { type: String, default: '' },
     suggestedFix: { type: String, default: '' },
     technicalRecommendation: { type: String, default: '' },
+    // Optional: lightweight copy of logs for quick access (rawLogs remains the primary field)
+    logs: { type: String, default: '' },
     rawLogs: { type: String, default: '' },
     executedAt: { type: Date, default: () => new Date() },
   },
