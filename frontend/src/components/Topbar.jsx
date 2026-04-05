@@ -20,8 +20,8 @@ export default function Topbar({ currentTab, onSelect }) {
     <div className="nav-blur flex items-center justify-between px-4 py-3">
       {/* Logo */}
       <div className="flex items-center gap-2">
-        <div className="h-8 w-8 rounded-lg accent-gradient" />
-        <div className="text-lg font-semibold">DCPVAS</div>
+        <span className="font-semibold text-lg text-[#7C5CFF]">DCPVAS</span>
+        <span className="text-sm text-slate-300">AI CI/CD Analyzer</span>
       </div>
       {/* Center search */}
       <div className="flex items-center gap-2 w-full max-w-xl">
