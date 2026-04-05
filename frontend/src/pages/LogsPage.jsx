@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import BuildList from '../components/logs/BuildList.jsx';
-import LogsViewer from '../components/logs/LogsViewer.jsx';
-import AIAnalysisPanel from '../components/logs/AIAnalysisPanel.jsx';
+import BuildList from '../components/logs/BuildList';
+import LogsViewer from '../components/logs/LogsViewer';
+import AIAnalysisPanel from '../components/logs/AIAnalysisPanel';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
 
 export default function LogsPage() {

@@ -1,16 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { SignIn, SignUp, useUser } from '@clerk/react';
-import Topbar from './components/Topbar.jsx';
-import Sidebar from './components/Sidebar.jsx';
-import Dashboard from './pages/Dashboard.jsx';
-import Pipelines from './pages/Pipelines.jsx';
-import AIInsights from './pages/AIInsights.jsx';
-import Settings from './pages/Settings.jsx';
-import History from './pages/History.jsx';
-import BuildDetails from './pages/BuildDetails.jsx';
-import Failures from './pages/Failures.jsx';
-import LogsPage from './pages/LogsPage.jsx';
+import Topbar from './components/Topbar';
+import Sidebar from './components/Sidebar';
+import Dashboard from './pages/Dashboard';
+import Pipelines from './pages/Pipelines';
+import AIInsights from './pages/AIInsights';
+import Settings from './pages/Settings';
+import History from './pages/History';
+import BuildDetails from './pages/BuildDetails';
+import Failures from './pages/Failures';
+import LogsPage from './pages/LogsPage';
 
 export default function App() {
   const [analysisMode, setAnalysisMode] = useState('Rule-Based');

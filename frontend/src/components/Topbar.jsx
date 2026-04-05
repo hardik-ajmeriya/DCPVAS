@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
+import { useJenkinsStatus } from '../context/JenkinsStatusContext';
 import { BellIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { UserButton } from '@clerk/react';
 

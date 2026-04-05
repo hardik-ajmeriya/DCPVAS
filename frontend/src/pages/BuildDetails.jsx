@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import FailureAnalysis from '../components/FailureAnalysis.jsx';
-import PipelineGraph from '../components/PipelineGraph.jsx';
-import PipelineProcessingSteps from '../components/PipelineProcessingSteps.jsx';
+import FailureAnalysis from '../components/FailureAnalysis';
+import PipelineGraph from '../components/PipelineGraph';
+import PipelineProcessingSteps from '../components/PipelineProcessingSteps';
 import { subscribeBuilds, subscribeConnection } from '../services/socket.js';
 import { useBuildDetailsQuery, useLatestBuildQuery, useAnalysisStatusQuery } from '../services/queries.js';
 import { useQueryClient } from '@tanstack/react-query';

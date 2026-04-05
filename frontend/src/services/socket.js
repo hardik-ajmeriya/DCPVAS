@@ -4,9 +4,7 @@
 // - Exposes subscribe/unsubscribe helpers for analysis events
 
 import { io } from 'socket.io-client';
-
-// Prefer env override; default to local dev server
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:4000';
+import { SOCKET_URL } from '../config/apiConfig.js';
 
 // Single shared socket instance
 const socket = io(SOCKET_URL, {

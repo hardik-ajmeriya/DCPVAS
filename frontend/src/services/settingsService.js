@@ -1,8 +1,8 @@
 import axios from 'axios';
+import { API_BASE } from '../config/apiConfig.js';
 
-// Base API client; URL sourced from Vite env, no hardcoding
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-const api = axios.create({ baseURL: apiBase });
+// Base API client; URL sourced from central API_BASE config
+const api = axios.create({ baseURL: API_BASE });
 
 export async function getJenkinsSettings() {
   const { data } = await api.get('/settings/jenkins');

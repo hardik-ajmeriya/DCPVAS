@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { getLatestPipelineFlow } from '../services/api.js';
 
-const JENKINS_BASE = import.meta.env.VITE_JENKINS_BASE_URL || 'http://localhost:8080';
+const JENKINS_BASE = import.meta.env.VITE_JENKINS_BASE_URL || '';
 
 const STATUS_META = {
   success: {
