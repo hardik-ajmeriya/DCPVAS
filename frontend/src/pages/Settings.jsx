@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
-import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
 import { getJenkinsSettings, saveJenkinsSettings, testJenkinsConnection } from '../services/settingsService.js';
-import { useTheme } from '../context/ThemeContext.jsx';
+import { useJenkinsStatus } from '../context/JenkinsStatusContext';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Settings({ mode = 'Rule-Based', onModeChange }) {
   const { setStatus, refresh } = useJenkinsStatus();

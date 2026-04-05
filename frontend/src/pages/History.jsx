@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import FailureAnalysis from '../components/FailureAnalysis.jsx';
-import Modal from '../components/Modal.jsx';
 // Modal view now uses FailureAnalysis; keep ExecutionDetails unused for now
-import PipelineGraph from '../components/PipelineGraph.jsx';
+import FailureAnalysis from '../components/FailureAnalysis';
+import Modal from '../components/Modal';
+import PipelineGraph from '../components/PipelineGraph';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
 

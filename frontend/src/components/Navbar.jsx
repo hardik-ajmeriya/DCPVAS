@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Cog6ToothIcon, ChartBarIcon, ListBulletIcon, LightBulbIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
-import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
+import { useJenkinsStatus } from '../context/JenkinsStatusContext';
 
 export default function Navbar({ currentTab, onSelect }) {
   const tabs = useMemo(() => ([

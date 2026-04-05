@@ -1,13 +1,12 @@
 import axios from 'axios';
+import { API_BASE } from '../config/apiConfig.js';
 
-// Default to backend dev port 4000; override via VITE_API_BASE_URL if needed
-// IMPORTANT: Backend mounts routes under '/api' (see backend/src/app.js)
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+// Central Axios instance configured with API_BASE from apiConfig
 const api = axios.create({
-  baseURL: apiBase,
+  baseURL: API_BASE,
 });
 
-export const API_BASE_URL = apiBase;
+export const API_BASE_URL = API_BASE;
 export { api };
 
 export async function getJenkinsSettings() {

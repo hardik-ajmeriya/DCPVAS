@@ -3,7 +3,7 @@ import { CheckCircle } from 'lucide-react';
 import { getRawLogs, getPipelineAnalysis } from '../services/api.js';
 import { requestLogStream, subscribeLogs } from '../services/socket.js';
 import { useAnalysisStatusQuery } from '../services/queries.js';
-import PipelineGraph from './PipelineGraph.jsx';
+import PipelineGraph from './PipelineGraph';
 
 const DEFAULT_TABS = [
   'Human Summary',

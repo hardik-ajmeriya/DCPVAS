@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, PlugZap, Loader2 } from 'lucide-react';
-import FailureAnalysis from '../components/FailureAnalysis.jsx';
+import FailureAnalysis from '../components/FailureAnalysis';
 import { getLatestPipeline, getPipelineHistory, getDashboardMetrics, getAnalysisStatus } from '../services/api.js';
-import MetricCard from '../components/MetricCard.jsx';
-import PipelineTable from '../components/PipelineTable.jsx';
-import PipelineFlow from '../components/PipelineFlow.jsx';
-import FailureList from '../components/FailureList.jsx';
-import AIEngineCard from '../components/AIEngineCard.jsx';
-import PipelineProcessingSteps from '../components/PipelineProcessingSteps.jsx';
-import AnalysisStatusBar from '../components/AnalysisStatusBar.jsx';
+import MetricCard from '../components/MetricCard';
+import PipelineTable from '../components/PipelineTable';
+import PipelineFlow from '../components/PipelineFlow';
+import FailureList from '../components/FailureList';
+import AIEngineCard from '../components/AIEngineCard';
+import PipelineProcessingSteps from '../components/PipelineProcessingSteps';
+import AnalysisStatusBar from '../components/AnalysisStatusBar';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
-import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
+import { createApiPath } from '../config/apiConfig.js';
+import { useJenkinsStatus } from '../context/JenkinsStatusContext';
 import { testJenkinsConnection } from '../services/settingsService.js';
 
 export default function Dashboard({ mode }) {
@@ -49,7 +50,6 @@ export default function Dashboard({ mode }) {
     }
   };
 
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
   const terminalTimerRef = useRef(null);
 
   useEffect(() => {
@@ -99,10 +99,13 @@ export default function Dashboard({ mode }) {
 
   const syncLatestPipeline = useCallback(async () => {
     try {
-      const res = await fetch(`${apiBase}/pipeline/latest?_ts=${Date.now()}`, {
+      const res = await fetch(`${createApiPath('pipeline/latest')}?_ts=${Date.now()}`, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
       });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch latest pipeline: ${res.status}`);
+      }
       const data = await res.json();
       const payload = data?.data ?? data;
       if (payload === null || payload === undefined || (data?.success === false && data?.data === null)) {
@@ -199,7 +202,7 @@ export default function Dashboard({ mode }) {
 
     if (eventSourceRef.current) return undefined;
 
-    const es = new EventSource(`${apiBase.replace(/\/$/, '')}/events/pipeline-stream`);
+    const es = new EventSource(createApiPath('events/pipeline-stream'));
     eventSourceRef.current = es;
 
     es.onmessage = (evt) => {

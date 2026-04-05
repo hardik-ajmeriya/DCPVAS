@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import PipelineTable from '../components/PipelineTable.jsx';
+import PipelineTable from '../components/PipelineTable';
 import { getPipelineHistory } from '../services/api.js';
 
 const PAGE_SIZE = 10;
