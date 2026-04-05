@@ -321,9 +321,11 @@ export default function Dashboard({ mode }) {
         });
       },
       onCompleted: (payload) => {
-        setHistory((prev) => prev.map((r) => (
-          r.buildNumber === payload?.buildNumber ? { ...r, status: payload?.status || 'UNKNOWN' } : r
-        )));
+        setHistory((prev) => prev.map((r) => {
+          if (r.buildNumber !== payload?.buildNumber) return r;
+          const nextStatus = (payload?.status || payload?.result || r.status || 'UNKNOWN').toUpperCase();
+          return { ...r, status: nextStatus };
+        }));
       },
     });
     const unsubAnalysis = subscribeAnalysis({

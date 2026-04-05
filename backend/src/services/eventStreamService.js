@@ -4,12 +4,14 @@
 const clients = new Set();
 const HEARTBEAT_MS = 25000;
 
-export function registerClient(res) {
+export function registerClient(req, res) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
+  // Initial heartbeat so proxies keep the connection alive
   res.write(`event: ping\n` + `data: ${JSON.stringify({ ts: Date.now() })}\n\n`);
 
   const client = { res };
@@ -24,10 +26,13 @@ export function registerClient(res) {
     }
   }, HEARTBEAT_MS);
 
-  res.on('close', () => {
+  const cleanup = () => {
     clearInterval(interval);
     clients.delete(client);
-  });
+  };
+
+  req.on('close', cleanup);
+  res.on('close', cleanup);
 }
 
 export function broadcastEvent(event) {

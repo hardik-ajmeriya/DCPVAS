@@ -10,11 +10,13 @@ function deriveSummary(raw) {
     jobName: raw.jobName,
     buildNumber: raw.buildNumber,
     status: raw.status || "UNKNOWN",
+    stages: Array.isArray(raw.stages) ? raw.stages : [],
     duration: durationMs,
     startedAt,
     finishedAt,
     executedAt: finishedAt || startedAt,
     failedStage: Array.isArray(raw.stages) ? (raw.stages.find((s) => s?.status === "FAILED")?.name || null) : null,
+    logs: typeof raw.rawLogs === 'string' ? raw.rawLogs : '',
   };
 }
 

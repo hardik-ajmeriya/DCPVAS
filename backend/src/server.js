@@ -1,29 +1,15 @@
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
 import app from './app.js';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import mongoose from 'mongoose';
 import { initJenkinsPolling, setSocketIO as setJenkinsIO } from './services/jenkinsService.js';
 import { setSocketIO as setLogStreamIO, watchBuildLogs, isWatching } from './services/logStreamingService.js';
 import { backfillPipelineRunsFromRawLogs } from './services/pipelineRunService.js';
-
-// Expect Atlas connection string via env for production deployment
-const mongoUri = process.env.MONGO_URI;
-const port = process.env.PORT || 4000;
+import { connectMongo } from './config/mongo.js';
+import config from './config/env.js';
 
 async function startServer() {
   try {
-    if (!mongoUri) {
-      throw new Error('MONGO_URI environment variable is not defined');
-    }
-
-    await mongoose.connect(mongoUri, { autoIndex: true });
-    console.log('MongoDB Atlas connected');
+    await connectMongo();
 
     try {
       const backfillResult = await backfillPipelineRunsFromRawLogs();
@@ -67,19 +53,19 @@ async function startServer() {
       });
     });
 
-    server.listen(port, () => {
-      console.log(`DCPVAS backend listening on port ${port}`);
+    server.listen(config.port, () => {
+      console.log(`DCPVAS backend listening on port ${config.port}`);
       console.log('Jenkins env status:', {
-        hasUrl: !!process.env.JENKINS_URL,
-        hasJob: !!process.env.JENKINS_JOB,
-        hasUser: !!process.env.JENKINS_USER,
-        hasToken: !!process.env.JENKINS_TOKEN,
+        hasUrl: !!config.jenkins.url,
+        hasJob: !!config.jenkins.job,
+        hasUser: !!config.jenkins.user,
+        hasToken: !!config.jenkins.token,
       });
       // Start Live Jenkins polling / background watcher (~2.5s interval)
       initJenkinsPolling(2500);
     });
   } catch (err) {
-    console.error('MongoDB connection error', err?.message || err);
+    console.error('Fatal startup error', err?.message || err);
     process.exit(1);
   }
 }

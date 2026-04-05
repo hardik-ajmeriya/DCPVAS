@@ -13,6 +13,7 @@ import JenkinsSettings from '../models/jenkinsSettings.js';
 import { decrypt } from './cryptoService.js';
 import { upsertPipelineRunFromRaw } from './pipelineRunService.js';
 import { broadcastEvent } from './eventStreamService.js';
+import { getLatestWithAnalysis } from './pipelineDataService.js';
 
 // Optional Socket.IO instance for emitting real-time events
 let io = null;
@@ -250,7 +251,7 @@ function parseStagesFromLogs(logText) {
   return stages;
 }
 
-async function updateCacheOnce() {
+export async function updateCacheOnce() {
   // Validate DB-backed Jenkins config
   const cfg = await getJenkinsConfig();
   console.log('Fetching Jenkins job:', cfg.jobName);
@@ -560,6 +561,60 @@ export async function getRecentBuilds(limit = 50) {
       };
     })
     .filter(Boolean);
+}
+
+// Fetch latest build from Jenkins (via updateCacheOnce), ensure it is synced into Mongo,
+// then derive a normalized flow object purely from Mongo-backed state.
+export async function getLatestPipelineFlowWithSync() {
+  await updateCacheOnce();
+
+  const combined = await getLatestWithAnalysis();
+  if (!combined) {
+    return {
+      jobName: null,
+      buildNumber: null,
+      status: 'pending',
+      building: false,
+      durationMs: null,
+      startedAt: null,
+      stages: [],
+    };
+  }
+
+  const { raw } = combined;
+  const buildNumber = raw?.buildNumber ?? null;
+  const jobName = raw?.jobName || null;
+  const startedAt = raw?.executedAt || raw?.createdAt || null;
+  const building = !!raw?.building || raw?.buildStatus === 'BUILDING';
+  const durationMs = Number.isFinite(raw?.durationSeconds) ? raw.durationSeconds * 1000 : null;
+  const overallStatus = building
+    ? 'running'
+    : normalizeStageStatusForFlow(raw?.status || raw?.buildStatus || 'UNKNOWN');
+
+  const sourceStages = Array.isArray(raw?.stages) ? raw.stages : [];
+  const filtered = sourceStages.filter((stage) => !isSystemStage(stage));
+
+  let failureSeen = false;
+  const stages = filtered.map((stage) => {
+    const normalized = normalizeStageStatusForFlow(stage?.status);
+    if (failureSeen) {
+      return { name: stage?.name || 'Unnamed Stage', status: 'pending' };
+    }
+    if (normalized === 'failed') {
+      failureSeen = true;
+    }
+    return { name: stage?.name || 'Unnamed Stage', status: normalized };
+  });
+
+  return {
+    jobName,
+    buildNumber,
+    status: overallStatus,
+    building,
+    durationMs,
+    startedAt,
+    stages,
+  };
 }
 
 export async function getBuildDetails(buildNumber) {

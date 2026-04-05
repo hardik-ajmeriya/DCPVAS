@@ -11,6 +11,55 @@ export async function getLatestWithAnalysis() {
   return { raw, ai };
 }
 
+// Latest failed builds for "Recent Failures" and failures page.
+// MongoDB is the single source of truth: we read directly from PipelineRawLog
+// and join the latest AI analysis per (jobName, buildNumber).
+export async function getLatestFailures(limit = 10) {
+  const n = Number(limit) || 10;
+
+  const raws = await PipelineRawLog.find({ status: 'FAILURE' })
+    .sort({ buildNumber: -1, executedAt: -1 })
+    .limit(n)
+    .lean();
+
+  if (!raws.length) return [];
+
+  const keys = raws.map((r) => ({ jobName: r.jobName, buildNumber: r.buildNumber }));
+  const jobNames = Array.from(new Set(keys.map((k) => k.jobName)));
+  const buildNumbers = Array.from(new Set(keys.map((k) => k.buildNumber)));
+
+  const aiDocs = await PipelineAIAnalysis.find({
+    jobName: { $in: jobNames },
+    buildNumber: { $in: buildNumbers },
+  })
+    .sort({ generatedAt: -1 })
+    .lean();
+
+  const latestAIByKey = new Map();
+  for (const a of aiDocs) {
+    const key = `${a.jobName}#${a.buildNumber}`;
+    if (!latestAIByKey.has(key)) latestAIByKey.set(key, a);
+  }
+
+  return raws.map((r) => {
+    const a = latestAIByKey.get(`${r.jobName}#${r.buildNumber}`);
+    const shortCommit = r.commit ? String(r.commit).slice(0, 7) : null;
+    const duration = Number.isFinite(r.durationSeconds) ? `${r.durationSeconds}s` : null;
+    return {
+      jobName: r.jobName,
+      buildNumber: r.buildNumber,
+      status: r.status,
+      executedAt: r.executedAt,
+      failedStage: a?.failedStage ?? null,
+      detectedError: a?.detectedError ?? null,
+      confidenceScore: a?.confidenceScore ?? 0,
+      branch: r.branch || null,
+      commit: shortCommit,
+      duration,
+    };
+  });
+}
+
 export async function getHistory(limit = 50) {
   const n = limit === 'all' ? 1000 : Number(limit) || 50;
   const raws = await PipelineRawLog.find().sort({ executedAt: -1 }).limit(n).lean();
@@ -104,6 +153,7 @@ export default {
   getBuildWithAnalysis,
   getRawLogs,
   getFailuresTimeline,
+  getLatestFailures,
 };
 
 export async function reanalyzeBuild(buildNumber, options = {}) {
