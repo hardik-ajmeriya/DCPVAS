@@ -8,7 +8,6 @@ import { ThemeProvider } from './context/ThemeContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getSocket } from './services/socket.js';
 import { qk } from './services/queries.js';
-import { ClerkProvider } from "@clerk/react"; // ✅ ADD THIS
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,17 +95,15 @@ function Root() {
   }, []);
 
   return (
-    <ClerkProvider> {/* ✅ WRAP EVERYTHING */}
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <JenkinsStatusProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </JenkinsStatusProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClerkProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <JenkinsStatusProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </JenkinsStatusProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
