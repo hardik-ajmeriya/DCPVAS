@@ -1,4 +1,5 @@
 import { Moon, Github } from "lucide-react";
+import { Link } from "react-router-dom";
 import { APP_URL } from "../config/appConfig";
 
 export default function Navbar() {
@@ -11,22 +12,37 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
 
         {/* Logo */}
-        <div className="flex items-center gap-2">
+        <Link to="/" className="flex items-center gap-2">
           <span className="text-primary font-bold text-xl">DCPVAS</span>
           <span className="text-muted text-sm">AI CI/CD Analyzer</span>
-        </div>
+        </Link>
 
         {/* Links */}
         <div className="hidden md:flex gap-8 text-sm">
-          {["Features", "How it works", "Proof", "About"].map((item) => (
-            <a
-              key={item}
-              href="#"
-              className="text-muted hover:text-primary transition"
-            >
-              {item}
-            </a>
-          ))}
+          <a
+            href="/#features"
+            className="text-muted hover:text-primary transition"
+          >
+            Features
+          </a>
+          <a
+            href="/#how-it-works"
+            className="text-muted hover:text-primary transition"
+          >
+            How it works
+          </a>
+          <a
+            href="/#proof"
+            className="text-muted hover:text-primary transition"
+          >
+            Proof
+          </a>
+          <Link
+            to="/about"
+            className="text-muted hover:text-primary transition"
+          >
+            About
+          </Link>
         </div>
 
         {/* Actions */}
