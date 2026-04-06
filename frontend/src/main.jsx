@@ -6,6 +6,7 @@ import './index.css';
 import { JenkinsStatusProvider } from './context/JenkinsStatusContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ClerkProvider } from '@clerk/clerk-react';
 import { getSocket } from './services/socket.js';
 import { qk } from './services/queries.js';
 
@@ -18,6 +19,8 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 function Root() {
   useEffect(() => {
@@ -109,6 +112,8 @@ function Root() {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <Root />
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+      <Root />
+    </ClerkProvider>
   </React.StrictMode>
 );

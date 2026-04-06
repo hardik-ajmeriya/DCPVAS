@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useJenkinsStatus } from '../context/JenkinsStatusContext';
 import { BellIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 
 export default function Topbar({ currentTab, onSelect }) {
   const { isConnected, jobName, warning } = useJenkinsStatus();
@@ -39,6 +40,14 @@ export default function Topbar({ currentTab, onSelect }) {
         <button className="p-2 rounded-lg hover-surface" title="Notifications">
           <BellIcon className="w-5 h-5" />
         </button>
+        <div className="flex items-center">
+          <SignedIn>
+            <UserButton afterSignOutUrl="/sign-in" />
+          </SignedIn>
+          <SignedOut>
+            {/* Optional: replace with RedirectToSignIn or custom button */}
+          </SignedOut>
+        </div>
       </div>
     </div>
   );

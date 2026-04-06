@@ -8,7 +8,6 @@ import PipelineTable from '../components/PipelineTable';
 import PipelineFlow from '../components/PipelineFlow';
 import FailureList from '../components/FailureList';
 import AIEngineCard from '../components/AIEngineCard';
-import PipelineProcessingSteps from '../components/PipelineProcessingSteps';
 import AnalysisStatusBar from '../components/AnalysisStatusBar';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
 import { createApiPath } from '../config/apiConfig.js';
@@ -164,7 +163,7 @@ export default function Dashboard({ mode }) {
       const job = buildRef.current?.jobName;
       const build = buildRef.current?.buildNumber;
       if (job && build) fetchAnalysisStatus(job, build, buildRef.current?.status);
-    }, 3000);
+    }, 7000);
     return () => clearInterval(interval);
   }, [connected, syncLatestPipeline, fetchAnalysisStatus]);
 
@@ -459,9 +458,6 @@ export default function Dashboard({ mode }) {
                 <AnalysisStatusBar stage={analysisState?.stage} skipped={analysisState?.skipped} className="mb-3" />
               )}
               <div className="flex flex-col gap-2">
-                {buildData?.progress && buildData.progress !== 'FAILED' && (
-                  <PipelineProcessingSteps step={buildData.progress} pipelineStatus={buildData?.status} />
-                )}
                 <div className="-mt-1">
                   <PipelineFlow currentBuildNumber={buildData?.buildNumber} />
                 </div>

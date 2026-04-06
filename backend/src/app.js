@@ -16,8 +16,9 @@ const app = express();
 // Core security & performance middleware
 applySecurity(app);
 
-// CORS – lock to configured frontend origins and allow credentials
+// CORS – allow known frontend origins and handle credentials + preflight
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // HTTP request logging
 app.use(requestLogger);

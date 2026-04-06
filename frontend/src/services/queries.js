@@ -18,7 +18,7 @@ export function useLatestBuildQuery() {
     retry: false,
     refetchInterval: (data) => {
       const building = !!data?.building || data?.buildStatus === 'BUILDING';
-      return building ? 3000 : false;
+      return building ? 7000 : false;
     },
   });
 }
@@ -39,8 +39,8 @@ export function useBuildDetailsQuery(buildNumber) {
       const analyzing = data?.analysisStatus && data.analysisStatus !== 'COMPLETED';
       const hasFinal = data?.finalResult != null;
       // Continue polling after COMPLETED until finalResult exists
-      if (building || analyzing) return 2000;
-      return hasFinal ? false : 2000;
+      if (building || analyzing) return 7000;
+      return hasFinal ? false : 7000;
     },
   });
 }
@@ -62,8 +62,8 @@ export function useAnalysisStatusQuery(buildNumber) {
     refetchInterval: (res) => {
       const status = res?.status;
       const hasFinal = res?.finalResult != null;
-      if (!status || status !== 'COMPLETED') return 2000;
-      return hasFinal ? false : 2000;
+      if (!status || status !== 'COMPLETED') return 7000;
+      return hasFinal ? false : 7000;
     },
   });
 }
