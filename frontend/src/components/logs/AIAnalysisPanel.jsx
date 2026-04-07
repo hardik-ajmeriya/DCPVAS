@@ -1,4 +1,5 @@
 import React, { memo, useMemo, useState } from 'react';
+import LogsSkeleton from '../skeletons/LogsSkeleton';
 
 function formatScore(score) {
   if (score == null || Number.isNaN(Number(score))) return null;
@@ -78,9 +79,7 @@ function AIAnalysisPanelInner({ selectedBuild, buildData, loading, error }) {
     );
   } else if (loading) {
     body = (
-      <div className="h-full flex items-center justify-center text-xs text-gray-600 dark:text-slate-300">
-        Running analysis and loading build data...
-      </div>
+      <LogsSkeleton variant="analysis" />
     );
   } else if (error) {
     body = (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import PipelineTable from '../components/PipelineTable';
 import { getPipelineHistory } from '../services/api.js';
+import PipelineListSkeleton from '../components/skeletons/PipelineListSkeleton';
 
 const PAGE_SIZE = 10;
 
@@ -12,10 +13,13 @@ export default function Pipelines() {
 
   useEffect(() => {
     let mounted = true;
+    let inFlight = false;
 
-    const load = async () => {
+    const load = async ({ showLoading = false } = {}) => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        setLoading(true);
+        if (showLoading) setLoading(true);
         const data = await getPipelineHistory('all');
         if (!mounted) return;
         setRuns(Array.isArray(data) ? data : []);
@@ -24,12 +28,13 @@ export default function Pipelines() {
         if (!mounted) return;
         setError('Failed to load pipelines');
       } finally {
-        if (mounted) setLoading(false);
+        inFlight = false;
+        if (mounted && showLoading) setLoading(false);
       }
     };
 
-    load();
-    const t = setInterval(load, 20000);
+    load({ showLoading: true });
+    const t = setInterval(() => load({ showLoading: false }), 30000);
     return () => {
       mounted = false;
       clearInterval(t);
@@ -53,27 +58,33 @@ export default function Pipelines() {
   return (
     <div className="p-4 space-y-4">
       <div className="text-xl font-semibold">All Pipeline Builds</div>
-      <PipelineTable rows={pageRows} title="All Pipeline Builds" subtitle={subtitle} />
+      {loading ? (
+        <PipelineListSkeleton variant="table" rows={PAGE_SIZE} />
+      ) : (
+        <PipelineTable rows={pageRows} title="All Pipeline Builds" subtitle={subtitle} />
+      )}
 
-      <div className="flex items-center justify-between text-sm text-gray-300">
-        <div>Page {currentPage} of {totalPages}</div>
-        <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage <= 1}
-          >
-            Previous
-          </button>
-          <button
-            className="px-3 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage >= totalPages}
-          >
-            Next
-          </button>
+      {!loading && (
+        <div className="flex items-center justify-between text-sm text-gray-300">
+          <div>Page {currentPage} of {totalPages}</div>
+          <div className="flex items-center gap-2">
+            <button
+              className="px-3 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+            >
+              Previous
+            </button>
+            <button
+              className="px-3 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

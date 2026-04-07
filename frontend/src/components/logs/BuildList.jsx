@@ -1,4 +1,5 @@
 import React, { memo, useMemo } from 'react';
+import PipelineListSkeleton from '../skeletons/PipelineListSkeleton';
 
 function getStatusClasses(status) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border';
@@ -26,19 +27,7 @@ function BuildListInner({ builds, selectedBuild, onSelectBuild, loading, error }
 
   const content = useMemo(() => {
     if (loading) {
-      return (
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, idx) => (
-            <div
-              key={idx}
-              className="animate-pulse rounded-lg border border-white/5 bg-slate-900/60 px-3 py-3"
-            >
-              <div className="h-3 w-24 bg-slate-700/70 rounded" />
-              <div className="mt-2 h-2 w-32 bg-slate-800/80 rounded" />
-            </div>
-          ))}
-        </div>
-      );
+      return <PipelineListSkeleton variant="sidebar" rows={8} />;
     }
 
     if (error) {

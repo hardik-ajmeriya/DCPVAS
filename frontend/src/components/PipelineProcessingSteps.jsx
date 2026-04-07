@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Check, Circle, Loader2 } from 'lucide-react';
+import { Check, Circle } from 'lucide-react';
 
 const STEP_SEQUENCE = [
   { key: 'fetching_logs', label: 'Fetching Logs' },
@@ -63,7 +63,7 @@ export default function PipelineProcessingSteps({ step, pipelineStatus, classNam
               {STEP_SEQUENCE.map((s, idx) => {
                 const status = computeStepStatus(idx, activeIndex, isPipelineSuccess);
                 const icon = status === 'running'
-                  ? <Loader2 className="w-5 h-5 animate-spin text-yellow-300" />
+                  ? <span className="h-3 w-3 rounded-full bg-yellow-300 animate-pulse" />
                   : status === 'success'
                   ? <Check className="w-5 h-5 text-green-300" />
                   : <Circle className="w-5 h-5 text-slate-200" />;

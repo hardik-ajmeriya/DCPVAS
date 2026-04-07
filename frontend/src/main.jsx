@@ -6,9 +6,10 @@ import './index.css';
 import { JenkinsStatusProvider } from './context/JenkinsStatusContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ClerkProvider } from '@clerk/clerk-react';
-import { getSocket } from './services/socket.js';
+import { ClerkProvider, useAuth } from '@clerk/clerk-react';
+import { connectSocket, disconnectSocket, getSocket } from './services/socket.js';
 import { qk } from './services/queries.js';
+import { setTokenGetter } from './services/authToken.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +24,22 @@ const queryClient = new QueryClient({
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 function Root() {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+
+  useEffect(() => {
+    setTokenGetter(() => getToken());
+    return () => setTokenGetter(null);
+  }, [getToken]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (isSignedIn) {
+      connectSocket();
+      return;
+    }
+    disconnectSocket();
+  }, [isLoaded, isSignedIn]);
+
   useEffect(() => {
     const socket = getSocket();
     const onReconnectGeneric = () => {

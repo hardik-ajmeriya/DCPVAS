@@ -16,11 +16,17 @@ export function applySecurity(app) {
   app.use(compression());
 
   // Basic rate limiter for all API routes
+  const configuredMax = Number(process.env.API_RATE_LIMIT_MAX);
+  const maxRequests = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : 500;
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 300,
+    max: maxRequests,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => req.method === 'OPTIONS',
+    message: {
+      message: 'Too many API requests. Please retry shortly.',
+    },
   });
   app.use('/api', limiter);
 

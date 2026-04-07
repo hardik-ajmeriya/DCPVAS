@@ -1,9 +1,60 @@
 import axios from 'axios';
 import { API_BASE } from '../config/apiConfig.js';
+import { getAuthToken } from './authToken.js';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransientApiError(err) {
+  const status = err?.response?.status;
+  return !status || status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+async function withBackoff(requestFn, options = {}) {
+  const {
+    retries = 1,
+    baseDelayMs = 700,
+    maxDelayMs = 2500,
+  } = options;
+
+  let attempt = 0;
+  while (attempt <= retries) {
+    try {
+      return await requestFn();
+    } catch (err) {
+      if (attempt >= retries || !isTransientApiError(err)) {
+        throw err;
+      }
+
+      const retryAfterHeader = Number(err?.response?.headers?.['retry-after']);
+      const retryAfterMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+        ? retryAfterHeader * 1000
+        : 0;
+
+      const backoffMs = Math.min(maxDelayMs, baseDelayMs * (2 ** attempt));
+      const jitterMs = Math.floor(Math.random() * 250);
+      await sleep(Math.max(retryAfterMs, backoffMs + jitterMs));
+      attempt += 1;
+    }
+  }
+
+  throw new Error('Request retry exhausted');
+}
 
 // Central Axios instance configured with API_BASE from apiConfig
 const api = axios.create({
   baseURL: API_BASE,
+});
+
+api.interceptors.request.use(async (requestConfig) => {
+  const token = await getAuthToken();
+  if (!token) return requestConfig;
+
+  const nextConfig = { ...requestConfig };
+  nextConfig.headers = {
+    ...(requestConfig.headers || {}),
+    Authorization: `Bearer ${token}`,
+  };
+  return nextConfig;
 });
 
 export const API_BASE_URL = API_BASE;
@@ -12,14 +63,15 @@ export { api };
 export async function getJenkinsSettings() {
   const { data } = await api.get('/settings/jenkins');
   // Expected shape: { jenkinsUrl, jobName, username, isConnected, lastVerifiedAt }
-  return data || {
-    
-  };
+  return data || {};
 }
 
 export async function getLatestPipeline() {
   try {
-    const { data } = await api.get('/pipeline/latest');
+    const { data } = await withBackoff(() => api.get('/pipeline/latest'), {
+      retries: 1,
+      baseDelayMs: 600,
+    });
     return data; // { success, data }
   } catch (err) {
     if (err?.response?.status === 404) {
@@ -36,7 +88,10 @@ export async function getLatestPipelineFlow() {
 
 export async function getPipelineHistory(limit = 50) {
   const lim = typeof limit === 'string' ? limit : Number(limit) || 50;
-  const { data } = await api.get(`/pipeline/history`, { params: { limit: lim } });
+  const { data } = await withBackoff(() => api.get(`/pipeline/history`, { params: { limit: lim } }), {
+    retries: 1,
+    baseDelayMs: 800,
+  });
   return data?.runs || [];
 }
  
@@ -53,7 +108,10 @@ export async function getPipelineStages() {
 // Dashboard metrics
 export async function getDashboardMetrics() {
   try {
-    const { data } = await api.get('/dashboard/metrics');
+    const { data } = await withBackoff(() => api.get('/dashboard/metrics'), {
+      retries: 1,
+      baseDelayMs: 800,
+    });
     // Expected shape:
     // { totalPipelines, activeBuilds, failedToday, avgFixTime, aiAccuracy }
     return data || null;
@@ -65,7 +123,10 @@ export async function getDashboardMetrics() {
 
 export async function getPipelineBuild(number) {
   try {
-    const { data } = await api.get(`/pipeline/build/${number}`);
+    const { data } = await withBackoff(() => api.get(`/pipeline/build/${number}`), {
+      retries: 1,
+      baseDelayMs: 700,
+    });
     return data; // normalized run with logs and stages
   } catch (err) {
     const status = err?.response?.status;
@@ -105,4 +166,12 @@ export async function getAnalysisStatus(jobName, buildNumber) {
   return data?.data || null;
 }
 
-export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics };
+export async function getInsights() {
+  const { data } = await withBackoff(() => api.get('/insights'), {
+    retries: 1,
+    baseDelayMs: 700,
+  });
+  return data || null;
+}
+
+export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics, getInsights };

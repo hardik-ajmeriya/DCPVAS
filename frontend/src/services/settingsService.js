@@ -1,8 +1,4 @@
-import axios from 'axios';
-import { API_BASE } from '../config/apiConfig.js';
-
-// Base API client; URL sourced from central API_BASE config
-const api = axios.create({ baseURL: API_BASE });
+import { api } from './api.js';
 
 export async function getJenkinsSettings() {
   const { data } = await api.get('/settings/jenkins');

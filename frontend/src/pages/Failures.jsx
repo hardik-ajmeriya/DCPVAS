@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { getPipelineHistory } from '../services/api.js';
+import FailureListSkeleton from '../components/skeletons/FailureListSkeleton';
 
 export default function Failures() {
   const [rows, setRows] = useState([]);
@@ -44,7 +45,7 @@ export default function Failures() {
           </div>
         </div>
 
-        {loading && <p className="text-sm text-gray-600 dark:text-gray-400">Loading…</p>}
+        {loading && <FailureListSkeleton variant="table" rows={8} />}
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         {!loading && !error && (

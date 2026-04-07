@@ -12,6 +12,7 @@ import { analyzeCleanedLogsStrict } from "../services/openaiService.js";
 import { cleanJenkinsLogs } from "../services/logSanitizer.js";
 import { decodeJenkinsConsole } from "../services/logDecoder.js";
 import PipelineAIAnalysis from "../models/PipelineAIAnalysis.js";
+
 const ANALYSIS_STAGE = {
   FETCH_LOGS: 1,
   FILTER_ERRORS: 2,
@@ -124,7 +125,7 @@ export async function getPipelineHistory(req, res) {
     return res.json({ runs });
   } catch (e) {
     console.error("Failed to fetch history:", e?.message || e);
-    return res.status(502).json({ error: "Failed to fetch history" });
+    return res.json({ runs: [] });
   }
 }
 
@@ -135,7 +136,9 @@ export async function getPipelineLogs(req, res) {
       return res.status(400).json({ error: "Invalid build number" });
     }
     const raw = await getRawLogs(Number(number));
-    if (!raw) return res.status(404).json({ error: "Build not found" });
+    if (!raw) {
+      return res.json({ rawLogs: "", consoleUrl: null, executedAt: null });
+    }
     return res.json(raw);
   } catch (e) {
     console.error("Failed to fetch logs:", e?.message || e);
@@ -146,7 +149,9 @@ export async function getPipelineLogs(req, res) {
 export async function getPipelineStages(req, res) {
   try {
     const combined = await getLatestWithAnalysis();
-    if (!combined) return res.status(404).json({ error: "No builds found" });
+    if (!combined) {
+      return res.json({ stages: [], lastUpdated: null, buildNumber: null });
+    }
     let stages = Array.isArray(combined.raw?.stages) ? combined.raw.stages : [];
 
     if (!stages.length && combined.raw?.buildNumber) {
@@ -175,6 +180,17 @@ export async function getLatestPipelineFlow(req, res) {
     console.log('[getLatestPipelineFlow] response:', flow);
     return res.json(flow);
   } catch (e) {
+    if (String(e?.message || '').toLowerCase().includes('jenkins not configured')) {
+      return res.json({
+        jobName: null,
+        buildNumber: null,
+        status: 'pending',
+        building: false,
+        durationMs: null,
+        startedAt: null,
+        stages: [],
+      });
+    }
     console.error('Failed to fetch latest pipeline flow:', e?.message || e);
     return res.status(502).json({ error: 'Failed to fetch latest pipeline flow' });
   }
@@ -230,7 +246,8 @@ export async function getPipelineBuild(req, res) {
     if (!combined) return res.status(404).json({ error: "Build not found" });
     const { raw, ai } = combined;
     const isSuccess = raw.status === 'SUCCESS';
-    const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
+    const fullLogs = raw.logs || raw.rawLogs || '';
+    const cleaned = decodeJenkinsConsole(fullLogs);
     const isCompilationFailure = raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
     const placeholder = 'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
     const base = {
@@ -245,7 +262,7 @@ export async function getPipelineBuild(req, res) {
       consoleUrl: raw.consoleUrl,
       finalResult: ai?.finalResult ?? (isSuccess ? 'SUCCESS' : null),
       // Provide logs; if none and compilation failed pre-execution, return placeholder
-      logs: isCompilationFailure ? placeholder : (raw.rawLogs || ''),
+      logs: isCompilationFailure ? placeholder : fullLogs,
     };
     if (isSuccess) {
       console.log('STATUS', raw.status);
@@ -298,7 +315,7 @@ export async function getFailureTimeline(req, res) {
     return res.json({ failures });
   } catch (e) {
     console.error("Failed to fetch latest failures:", e?.message || e);
-    return res.status(502).json({ error: "Failed to fetch latest failures", failures: [] });
+    return res.json({ failures: [] });
   }
 }
 

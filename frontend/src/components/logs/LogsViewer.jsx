@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef } from 'react';
+import LogsSkeleton from '../skeletons/LogsSkeleton';
 
 function getLogClass(line) {
   if (!line) return 'text-gray-300';
@@ -40,9 +41,7 @@ function LogsViewerInner({ logs, loading, hasSelectedBuild, error }) {
     );
   } else if (loading) {
     body = (
-      <div className="h-full flex items-center justify-center text-sm text-slate-300">
-        Loading logs...
-      </div>
+      <LogsSkeleton variant="viewer" />
     );
   } else if (error) {
     body = (

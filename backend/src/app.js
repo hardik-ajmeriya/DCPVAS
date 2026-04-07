@@ -10,15 +10,16 @@ import openaiRoutes from "./routes/openaiRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import eventsRoutes from "./routes/eventsRoutes.js";
+import insightsRoutes from "./routes/insightsRoutes.js";
 
 const app = express();
-
-// Core security & performance middleware
-applySecurity(app);
 
 // CORS – allow known frontend origins and handle credentials + preflight
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+// Core security & performance middleware
+applySecurity(app);
 
 // HTTP request logging
 app.use(requestLogger);
@@ -34,6 +35,7 @@ app.use("/api", openaiRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/events", eventsRoutes);
+app.use("/api/insights", insightsRoutes);
 console.log("Settings routes mounted at /api/settings");
 
 // Friendly API root to avoid default 404 on /api
@@ -47,6 +49,7 @@ app.get("/api", (req, res) => {
       "/api/pipeline/logs",
       "/api/pipeline/stages",
       "/api/executions",
+      "/api/insights",
     ],
   });
 });

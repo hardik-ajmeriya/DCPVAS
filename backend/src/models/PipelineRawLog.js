@@ -26,6 +26,8 @@ const PipelineRawLogSchema = new mongoose.Schema(
         durationMs: { type: Number, default: 0 },
       },
     ],
+    // Full Jenkins console output (kept untruncated for Raw Logs UI)
+    logs: { type: String, default: '' },
     rawLogs: { type: String, default: '' },
     consoleUrl: { type: String, default: '' },
     executedAt: { type: Date, required: true },

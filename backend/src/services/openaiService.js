@@ -137,10 +137,14 @@ export async function analyzeCleanedLogsStrict(inputLogs) {
 export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   const { model } = getConfig();
   if (!rawDoc) throw new Error('rawDoc is required');
+
   // Only analyze failed builds; skip SUCCESS to conserve resources
   if (rawDoc.status !== 'FAILURE') {
     const { io, room } = options || {};
-    io?.to(room || '').emit('analysis:skipped', { buildNumber: rawDoc.buildNumber, reason: 'NOT_REQUIRED' });
+    if (io) {
+      if (room) io.to(room).emit('analysis:skipped', { buildNumber: rawDoc.buildNumber, reason: 'NOT_REQUIRED' });
+      else io.emit('analysis:skipped', { buildNumber: rawDoc.buildNumber, reason: 'NOT_REQUIRED' });
+    }
     try {
       await rawDoc.updateOne({ $set: { analysisStatus: 'NOT_REQUIRED' } });
       await PipelineAIAnalysis.findOneAndUpdate(
@@ -192,22 +196,27 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
     } catch {}
   };
   const emitProgress = (stage, message) => {
-    if (io)
-      io.to(room || '').emit('analysis:progress', {
+    if (io) {
+      const emitter = room ? io.to(room) : io;
+      emitter.emit('analysis:progress', {
         buildNumber: rawDoc.buildNumber,
         status: stage,
         stage,
         message,
       });
+    }
   };
   const emitStarted = () => {
-    if (io)
-      io.to(room || '').emit('analysis:started', {
+    if (io) {
+      const emitter = room ? io.to(room) : io;
+      emitter.emit('analysis:started', {
         buildNumber: rawDoc.buildNumber,
       });
+    }
   };
   const emitComplete = (analysis) => {
     if (io) {
+      const emitter = room ? io.to(room) : io;
       const payload = {
         buildNumber: rawDoc.buildNumber,
         status: 'COMPLETED',
@@ -225,8 +234,8 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
         },
       };
       // Emit both for compatibility; prefer 'analysis:complete' per spec
-      io.to(room || '').emit('analysis:complete', payload);
-      io.to(room || '').emit('analysis:completed', payload);
+      emitter.emit('analysis:complete', payload);
+      emitter.emit('analysis:completed', payload);
     }
     // SSE broadcast for dashboard without sockets
     try {

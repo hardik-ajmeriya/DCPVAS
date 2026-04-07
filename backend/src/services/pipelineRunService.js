@@ -16,7 +16,7 @@ function deriveSummary(raw) {
     finishedAt,
     executedAt: finishedAt || startedAt,
     failedStage: Array.isArray(raw.stages) ? (raw.stages.find((s) => s?.status === "FAILED")?.name || null) : null,
-    logs: typeof raw.rawLogs === 'string' ? raw.rawLogs : '',
+    logs: typeof raw.logs === 'string' ? raw.logs : (typeof raw.rawLogs === 'string' ? raw.rawLogs : ''),
   };
 }
 

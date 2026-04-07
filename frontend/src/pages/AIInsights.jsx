@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Brain, CheckCircle2 } from 'lucide-react';
+import { getInsights } from '../services/api.js';
+import { subscribeBuilds } from '../services/socket.js';
+import AIInsightsSkeleton from '../components/skeletons/AIInsightsSkeleton';
+import Skeleton from '../components/ui/Skeleton';
 
 function InsightCard({ title, value, accent, onClick, subtitle }) {
   return (
@@ -19,7 +23,7 @@ function InsightCard({ title, value, accent, onClick, subtitle }) {
 
 function FailureTrendChart({ data }) {
   const [recharts, setRecharts] = useState(null);
-  const maxFailures = useMemo(() => Math.max(...data.map((d) => d.failures)), [data]);
+  const maxFailures = useMemo(() => (data.length ? Math.max(...data.map((d) => Number(d.failures) || 0)) : 0), [data]);
 
   useEffect(() => {
     let mounted = true;
@@ -31,13 +35,30 @@ function FailureTrendChart({ data }) {
 
   if (!recharts) {
     return (
-      <div className="h-64 rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 flex items-center justify-center text-xs text-gray-600 dark:text-gray-400">
-        Loading chart…
+      <div className="h-64 rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 p-4 space-y-3">
+        <Skeleton className="h-4 w-40" />
+        <div className="space-y-2 pt-2">
+          {Array.from({ length: 8 }).map((_, idx) => (
+            <Skeleton key={idx} className={`h-3 ${idx % 2 === 0 ? 'w-full' : 'w-5/6'}`} />
+          ))}
+        </div>
       </div>
     );
   }
 
   const { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } = recharts;
+
+  if (!data.length) {
+    return (
+      <div className="rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 p-4 shadow-sm dark:shadow-lg">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-200 mb-3">Pipeline Failures (Last 7 Days)</div>
+        <div className="h-[260px] flex items-center justify-center text-sm text-gray-600 dark:text-slate-400">
+          No failures recorded in the last 7 days.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 p-4 shadow-sm dark:shadow-lg">
       <div className="text-sm font-semibold text-gray-900 dark:text-slate-200 mb-3">Pipeline Failures (Last 7 Days)</div>
@@ -104,6 +125,15 @@ function StageReliability({ stages }) {
     return 'bg-red-500';
   };
 
+  if (!stages.length) {
+    return (
+      <div className="rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 p-4 shadow-sm dark:shadow-lg">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-200">Stage Reliability</div>
+        <div className="text-sm text-gray-600 dark:text-slate-400 mt-3">No stage reliability data available yet.</div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 p-4 shadow-sm dark:shadow-lg space-y-3">
       <div className="flex items-center justify-between">
@@ -131,32 +161,34 @@ function StageReliability({ stages }) {
 }
 
 function AISuggestions({ items }) {
+  const normalized = Array.isArray(items)
+    ? items
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          if (typeof item.fix === 'string' && item.fix.trim()) return item.fix.trim();
+          if (typeof item.title === 'string' && item.title.trim()) return item.title.trim();
+        }
+        return '';
+      })
+      .filter(Boolean)
+    : [];
+
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-purple-500/20 bg-white dark:bg-slate-900/60 p-5 shadow-sm dark:shadow-lg">
       <div className="flex items-center gap-2 mb-3">
         <Brain className="w-4 h-4 text-purple-500 dark:text-purple-300" />
         <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">AI Suggestions</div>
       </div>
-      <div className="space-y-4">
-        {items.map((item, idx) => (
-          <div key={idx} className="border-l-2 border-purple-500/40 pl-3 space-y-2">
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-gray-600 dark:text-slate-400">Issue</div>
-              <div className="text-sm text-gray-900 dark:text-slate-100 font-medium">{item.title}</div>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-gray-600 dark:text-slate-400">Possible Causes</div>
-              <ul className="list-disc pl-4 text-xs text-gray-700 dark:text-slate-300 space-y-1 mt-1">
-                {item.causes.map((cause, i) => <li key={i}>{cause}</li>)}
-              </ul>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-gray-600 dark:text-slate-400">Suggested Fix</div>
-              <div className="text-xs text-gray-700 dark:text-slate-200 mt-1">{item.fix}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {normalized.length ? (
+        <ul className="space-y-2 list-disc pl-5 text-sm text-gray-700 dark:text-slate-300">
+          {normalized.map((item, idx) => (
+            <li key={idx}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <div className="text-sm text-gray-600 dark:text-slate-400">No actionable suggestions yet.</div>
+      )}
     </div>
   );
 }
@@ -172,58 +204,126 @@ function AISummary({ text }) {
 
 export default function AIInsights() {
   const navigate = useNavigate();
-  const metrics = useMemo(() => ([
-    { title: 'Pipeline Stability', value: '82%', accent: 'from-emerald-500/20 via-slate-900 to-emerald-600/10', subtitle: 'Based on last 50 builds' },
-    { title: 'Most Failing Stage', value: 'Docker Build', accent: 'from-amber-500/15 via-slate-900 to-red-500/10', subtitle: 'Click to filter failures' },
-    { title: 'AI Confidence', value: '92%', accent: 'from-indigo-500/20 via-slate-900 to-purple-600/10', subtitle: 'Model confidence across recent runs' },
-  ]), []);
+  const [insights, setInsights] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [clockTick, setClockTick] = useState(Date.now());
 
-  const failureTrend = useMemo(() => ([
-    { day: 'Mon', failures: 2, topIssue: 'Docker Build' },
-    { day: 'Tue', failures: 1, topIssue: 'Unit Test' },
-    { day: 'Wed', failures: 4, topIssue: 'Docker Build' },
-    { day: 'Thu', failures: 0, topIssue: null },
-    { day: 'Fri', failures: 3, topIssue: 'Deploy' },
-    { day: 'Sat', failures: 1, topIssue: 'Unit Test' },
-    { day: 'Sun', failures: 2, topIssue: 'Docker Build' },
-  ]), []);
+  const fetchInsights = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+    }
 
-  const stageReliability = useMemo(() => ([
-    { name: 'Checkout', rate: 100, failures: 0 },
-    { name: 'Build', rate: 95, failures: 2 },
-    { name: 'Unit Test', rate: 82, failures: 7 },
-    { name: 'Docker Build', rate: 61, failures: 19 },
-    { name: 'Deploy', rate: 90, failures: 4 },
-  ]), []);
-
-  const aiSuggestions = useMemo(() => ([
-    {
-      title: 'Docker Build failures detected frequently',
-      causes: ['Docker login token expired', 'Base image pulls timing out', 'Layer cache not reused in CI nodes'],
-      fix: 'Run docker login before the build stage and enable remote layer caching to reduce pull retries.',
-    },
-    {
-      title: 'Intermittent test flakiness in Unit Test stage',
-      causes: ['Race conditions in async tests', 'Shared test database between jobs'],
-      fix: 'Isolate test databases per job and add retry logic for known flaky suites.',
-    },
-  ]), []);
-
-  const aiSummary = useMemo(() => (
-    'Most failures this week occurred during Docker Build due to image pulls and auth issues. Test reliability improved compared to last week, while deploys remained stable.'
-  ), []);
-
-  const hasInsights = Boolean(failureTrend.length && stageReliability.length && aiSuggestions.length);
-
-  const [lastUpdated, setLastUpdated] = useState(0);
+    try {
+      const data = await getInsights();
+      setInsights(data || null);
+      setLastUpdatedAt(new Date(data?.meta?.generatedAt || Date.now()));
+      setError('');
+    } catch (err) {
+      console.error('Failed to fetch insights:', err?.message || err);
+      if (!silent) {
+        setError(err?.response?.data?.error || err?.message || 'Failed to load AI insights');
+      }
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    setLastUpdated(0);
-    const timer = setInterval(() => {
-      setLastUpdated((prev) => prev + 10);
-    }, 10000);
-    return () => clearInterval(timer);
+    fetchInsights();
+  }, [fetchInsights]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchInsights({ silent: true });
+    }, 15000);
+    return () => clearInterval(id);
+  }, [fetchInsights]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setClockTick(Date.now());
+    }, 1000);
+    return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const unsubBuilds = subscribeBuilds({
+      onNew: () => fetchInsights({ silent: true }),
+      onStarted: () => fetchInsights({ silent: true }),
+      onCompleted: () => fetchInsights({ silent: true }),
+    });
+
+    return () => {
+      unsubBuilds();
+    };
+  }, [fetchInsights]);
+
+  const totalBuilds = Number(insights?.meta?.totalBuilds || 0);
+  const mostFailingStage = insights?.mostFailingStage || null;
+  const failureTrend = Array.isArray(insights?.failuresTrend) ? insights.failuresTrend : [];
+  const stageReliability = Array.isArray(insights?.stageReliability) ? insights.stageReliability : [];
+  const aiSuggestions = Array.isArray(insights?.suggestions) ? insights.suggestions : [];
+  const aiSummary = insights?.summary || 'No AI summary available yet.';
+
+  const metrics = useMemo(() => ([
+    {
+      title: 'Pipeline Stability',
+      value: `${Number(insights?.stability || 0)}%`,
+      accent: 'from-emerald-500/20 via-slate-900 to-emerald-600/10',
+      subtitle: `Based on ${totalBuilds} completed builds`,
+    },
+    {
+      title: 'Most Failing Stage',
+      value: mostFailingStage || 'N/A',
+      accent: 'from-amber-500/15 via-slate-900 to-red-500/10',
+      subtitle: 'Most frequent failed stage in recent runs',
+    },
+    {
+      title: 'AI Confidence',
+      value: `${Number(insights?.aiConfidence || 0)}%`,
+      accent: 'from-indigo-500/20 via-slate-900 to-purple-600/10',
+      subtitle: 'Average confidence from completed analyses',
+    },
+  ]), [insights?.aiConfidence, insights?.stability, mostFailingStage, totalBuilds]);
+
+  const hasInsights = totalBuilds > 0;
+
+  const lastUpdatedLabel = useMemo(() => {
+    if (!lastUpdatedAt) return 'just now';
+    const diffSeconds = Math.max(0, Math.floor((clockTick - lastUpdatedAt.getTime()) / 1000));
+    return `${diffSeconds}s ago`;
+  }, [clockTick, lastUpdatedAt]);
+
+  if (loading && !insights) {
+    return <AIInsightsSkeleton />;
+  }
+
+  if (error && !insights) {
+    return (
+      <div className="p-6">
+        <div className="rounded-2xl border border-red-300/40 dark:border-red-500/20 bg-red-50/70 dark:bg-red-500/10 p-6 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 text-red-700 dark:text-red-200">
+            <AlertCircle className="w-5 h-5 mt-0.5" />
+            <div>
+              <div className="font-medium">Failed to load AI insights</div>
+              <div className="text-sm mt-1">{error}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchInsights()}
+            className="px-3 py-1.5 text-sm rounded border border-red-400/40 dark:border-red-300/40 hover:bg-red-100/70 dark:hover:bg-red-500/20"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasInsights) {
     return (
@@ -232,7 +332,7 @@ export default function AIInsights() {
           <AlertCircle className="w-5 h-5 text-amber-400" />
           <div className="space-y-1">
             <div className="font-medium text-gray-900 dark:text-slate-100">No AI insights available yet.</div>
-            <div className="text-sm text-gray-700 dark:text-slate-400">Run more pipelines to generate analytics.</div>
+            <div className="text-sm text-gray-700 dark:text-slate-400">Run completed pipelines to generate insights from real build data.</div>
           </div>
         </div>
       </div>
@@ -246,8 +346,14 @@ export default function AIInsights() {
           <CheckCircle2 className="w-5 h-5 text-emerald-400" />
           <div className="text-xl font-semibold text-gray-900 dark:text-white">AI Insights</div>
         </div>
-        <div className="text-xs text-gray-600 dark:text-slate-400">Last Updated {lastUpdated}s ago</div>
+        <div className="text-xs text-gray-600 dark:text-slate-400">Last Updated {lastUpdatedLabel}</div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-amber-300/40 dark:border-amber-500/30 bg-amber-50/80 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {metrics.map((m) => (
@@ -257,7 +363,11 @@ export default function AIInsights() {
             value={m.value}
             accent={m.accent}
             subtitle={m.subtitle}
-            onClick={m.title === 'Most Failing Stage' ? () => navigate('/failures?stage=docker-build') : undefined}
+            onClick={
+              m.title === 'Most Failing Stage' && mostFailingStage
+                ? () => navigate(`/failures?stage=${encodeURIComponent(String(mostFailingStage).toLowerCase().replace(/\s+/g, '-'))}`)
+                : undefined
+            }
           />
         ))}
       </div>

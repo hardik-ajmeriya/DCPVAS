@@ -1,4 +1,4 @@
-import { CheckCircle, CloudDownload, Filter, Brain, Database, Loader2 } from 'lucide-react';
+import { CheckCircle, CloudDownload, Filter, Brain, Database } from 'lucide-react';
 
 const STEPS = [
   { key: 'fetch_logs', label: 'Fetching Logs', icon: CloudDownload },
@@ -40,7 +40,7 @@ export default function AnalysisStatusBar({ stage = 'fetch_logs', skipped = fals
           const isDone = terminalDone || skippedStep || order < current || (order === current && (step.key === 'completed' || step.key === 'store_results') && !isSkipped);
           const isRunning = !isTerminal && order === current && !isDone && !skippedStep;
           const icon = isRunning
-            ? <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+            ? <span className="h-3 w-3 rounded-full bg-amber-400 animate-pulse" />
             : <Icon className={`w-5 h-5 ${isDone ? 'text-emerald-500 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-200'}`} />;
 
           return (

@@ -8,7 +8,7 @@ export default function App() {
   return (
     <Routes>
       <Route
-        path="/sign-in"
+        path="/sign-in/*"
         element={(
           <AuthLayout>
             <SignIn path="/sign-in" routing="path" signUpUrl="/sign-up" />
@@ -17,7 +17,7 @@ export default function App() {
       />
 
       <Route
-        path="/sign-up"
+        path="/sign-up/*"
         element={(
           <AuthLayout>
             <SignUp path="/sign-up" routing="path" signInUrl="/sign-in" />

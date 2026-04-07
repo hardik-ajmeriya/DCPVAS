@@ -5,6 +5,7 @@
 
 import { io } from 'socket.io-client';
 import { SOCKET_URL } from '../config/apiConfig.js';
+import { getAuthToken } from './authToken.js';
 
 // Single shared socket instance
 const socket = io(SOCKET_URL, {
@@ -13,7 +14,21 @@ const socket = io(SOCKET_URL, {
   reconnection: true,
   reconnectionAttempts: 10,
   reconnectionDelay: 1000,
+  autoConnect: false,
+  auth: (cb) => {
+    getAuthToken()
+      .then((token) => cb(token ? { token } : {}))
+      .catch(() => cb({}));
+  },
 });
+
+export function connectSocket() {
+  if (!socket.connected) socket.connect();
+}
+
+export function disconnectSocket() {
+  if (socket.connected) socket.disconnect();
+}
 
 // Subscribe to analysis events and return an unsubscribe function.
 // handlers: { onProgress?: (payload) => void, onComplete?: (payload) => void }
@@ -95,6 +110,8 @@ export function subscribeBuilds(handlers = {}) {
 
 export default {
   getSocket,
+  connectSocket,
+  disconnectSocket,
   subscribeAnalysis,
   subscribeBuilds,
   requestLogStream,
