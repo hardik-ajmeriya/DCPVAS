@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { getDashboardMetrics } from '../controllers/dashboardController.js';
+import { getDashboardState } from '../controllers/dashboardController.js';
 
 const router = Router();
 
-// GET /api/dashboard/metrics
-router.get('/metrics', getDashboardMetrics);
+// Unified dashboard state (used for REST fallback when SSE is unavailable)
+// GET /api/dashboard/state
+router.get('/state', getDashboardState);
 
 export default router;

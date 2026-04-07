@@ -40,6 +40,7 @@ let pollingTimer = null;
 const POLLING_INTERVAL_MS = 5000;
 
 export async function getJenkinsConfig() {
+<<<<<<< HEAD
   const settings = await JenkinsSettings.findOne();
   if (!settings) throw new Error('Jenkins not configured');
   let password;
@@ -58,9 +59,68 @@ export async function getJenkinsConfig() {
     error.code = 'JENKINS_INVALID_CREDENTIALS';
     throw error;
   }
+=======
+  const [total, typed] = await Promise.all([
+    JenkinsSettings.countDocuments({}).catch((e) => {
+      console.error('[JenkinsSettings] countDocuments(all) failed:', e?.message || e);
+      return -1;
+    }),
+    JenkinsSettings.countDocuments({ type: 'jenkins' }).catch((e) => {
+      console.error('[JenkinsSettings] countDocuments(type=jenkins) failed:', e?.message || e);
+      return -1;
+    }),
+  ]);
+
+  console.log('[JenkinsSettings] Collection stats before getJenkinsConfig:', {
+    totalDocuments: total,
+    jenkinsTypedDocuments: typed,
+  });
+
+  let settings = await JenkinsSettings.findOne({ type: 'jenkins' });
+  if (!settings) {
+    // Backwards compatibility for records created before `type` field existed
+    settings = await JenkinsSettings.findOne();
+  }
+
+  if (!settings) {
+    console.error('[JenkinsSettings] getJenkinsConfig: no Jenkins config found in database');
+    throw new Error('Jenkins not configured');
+  }
+
+  const baseUrl = settings.jenkinsUrl || settings.url;
+  const encryptedToken = settings.apiToken || settings.token;
+
+  if (!baseUrl || !settings.jobName || !settings.username || !encryptedToken) {
+    console.error('[JenkinsSettings] getJenkinsConfig: incomplete config in database', {
+      id: settings._id,
+      type: settings.type,
+      hasUrl: !!baseUrl,
+      hasJobName: !!settings.jobName,
+      hasUsername: !!settings.username,
+      hasToken: !!encryptedToken,
+    });
+    throw new Error('Jenkins not configured');
+  }
+
+  let password;
+  try {
+    password = decrypt(encryptedToken);
+  } catch (err) {
+    console.error('[JenkinsSettings] getJenkinsConfig: failed to decrypt Jenkins token:', err?.message || err);
+    throw new Error('Failed to decrypt Jenkins token; check SECRET_KEY');
+  }
+
+  console.log('[JenkinsSettings] Fetched config for Jenkins client:', {
+    baseUrl,
+    jobName: settings.jobName,
+    username: settings.username,
+    isConnected: settings.isConnected,
+    lastVerifiedAt: settings.lastVerifiedAt,
+  });
+>>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
   return {
-    baseUrl: settings.jenkinsUrl,
+    baseUrl,
     jobName: settings.jobName,
     auth: {
       username: settings.username,

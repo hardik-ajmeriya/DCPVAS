@@ -264,6 +264,7 @@ export async function getLatestPipelineFlow(req, res) {
     console.log('[getLatestPipelineFlow] response:', flow);
     return res.json(flow);
   } catch (e) {
+<<<<<<< HEAD
     if (String(e?.message || '').toLowerCase().includes('jenkins not configured')) {
       return res.json({
         jobName: null,
@@ -276,6 +277,15 @@ export async function getLatestPipelineFlow(req, res) {
       });
     }
     console.error('Failed to fetch latest pipeline flow:', e?.message || e);
+=======
+    const msg = e?.message || e;
+    if (msg === 'Jenkins not configured') {
+      // Expected when Jenkins has not been configured yet; treat as a soft failure
+      console.warn('[getLatestPipelineFlow] Jenkins not configured; latest flow unavailable');
+      return res.status(400).json({ error: 'Jenkins not configured' });
+    }
+    console.error('Failed to fetch latest pipeline flow:', msg);
+>>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     return res.status(502).json({ error: 'Failed to fetch latest pipeline flow' });
   }
 }

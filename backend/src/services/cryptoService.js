@@ -6,16 +6,30 @@ const SECRET = process.env.ENCRYPTION_KEY || process.env.SECRET_KEY || "dcpvas-d
 const KEY = crypto.createHash("sha256").update(String(SECRET)).digest();
 const IV = Buffer.alloc(16, 0);
 
+console.log("[cryptoService] Initialized symmetric crypto", {
+  hasSecretKeyEnv: Boolean(process.env.SECRET_KEY),
+});
+
 export function encrypt(text) {
-  const cipher = crypto.createCipheriv(ALGORITHM, KEY, IV);
-  let encrypted = cipher.update(text, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return encrypted;
+  try {
+    const cipher = crypto.createCipheriv(ALGORITHM, KEY, IV);
+    let encrypted = cipher.update(text, "utf8", "hex");
+    encrypted += cipher.final("hex");
+    return encrypted;
+  } catch (err) {
+    console.error("[cryptoService] Encryption failed:", err?.message || err);
+    throw err;
+  }
 }
 
 export function decrypt(encrypted) {
-  const decipher = crypto.createDecipheriv(ALGORITHM, KEY, IV);
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+  try {
+    const decipher = crypto.createDecipheriv(ALGORITHM, KEY, IV);
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch (err) {
+    console.error("[cryptoService] Decryption failed:", err?.message || err);
+    throw err;
+  }
 }

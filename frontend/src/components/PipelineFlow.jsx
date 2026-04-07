@@ -98,6 +98,7 @@ const stageVariants = {
   hidden: { opacity: 0, y: 10, scale: 0.95 },
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } },
 };
+<<<<<<< HEAD
 
 export default function PipelineFlow({ flowData }) {
   const stages = Array.isArray(flowData?.stages) ? flowData.stages : [];
@@ -107,6 +108,9 @@ export default function PipelineFlow({ flowData }) {
   const jobName = flowData?.jobName || '';
   const loading = !flowData;
 
+=======
+export default function PipelineFlow({ stages, buildNumber, status, durationMs, jobName }) {
+>>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
   const normalizedStages = useMemo(
     () => (stages || []).map((stage) => ({
       name: stage?.name || 'Stage',
@@ -162,6 +166,7 @@ export default function PipelineFlow({ flowData }) {
           )}
         </div>
 
+<<<<<<< HEAD
         {loading && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -180,14 +185,16 @@ export default function PipelineFlow({ flowData }) {
                 </div>
               ))}
             </div>
+=======
+        {!stages?.length && (
+          <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-slate-300/80">
+            <div className="w-3 h-3 rounded-full bg-gray-400 dark:bg-slate-500 animate-pulse" />
+            <span>Loading latest pipeline flow...</span>
+>>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
           </div>
         )}
 
-        {!loading && !normalizedStages.length && (
-          <div className="text-sm text-gray-600 dark:text-slate-400">No stage data available for the latest build.</div>
-        )}
-
-        {!loading && !!normalizedStages.length && (
+        {!!normalizedStages.length && (
           <div className="relative overflow-x-auto pb-4">
             <div className="min-w-[720px] px-1">
               <div className="relative flex items-center justify-between gap-6">

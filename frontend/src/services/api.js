@@ -132,6 +132,17 @@ export async function getDashboardMetrics() {
   }
 }
 
+// AI Insights overview
+export async function getAIInsights() {
+  try {
+    const { data } = await api.get('/insights');
+    return data?.data || null;
+  } catch (err) {
+    console.error('Failed to load AI insights', err?.message || err);
+    return null;
+  }
+}
+
 export async function getPipelineBuild(number) {
   try {
     const { data } = await withBackoff(() => api.get(`/pipeline/build/${number}`, {
@@ -179,6 +190,7 @@ export async function getAnalysisStatus(jobName, buildNumber) {
   return data?.data || null;
 }
 
+<<<<<<< HEAD
 export async function getInsights() {
   const { data } = await withBackoff(() => api.get('/insights'), {
     retries: 1,
@@ -188,3 +200,6 @@ export async function getInsights() {
 }
 
 export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics, getInsights };
+=======
+export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics, getAIInsights };
+>>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
