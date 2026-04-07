@@ -2,10 +2,34 @@ import { useEffect, useRef, useState } from 'react';
 import FailureAnalysis from '../components/FailureAnalysis';
 import PipelineGraph from '../components/PipelineGraph';
 import PipelineProcessingSteps from '../components/PipelineProcessingSteps';
-import { subscribeBuilds, subscribeConnection } from '../services/socket.js';
-import { useBuildDetailsQuery, useLatestBuildQuery, useAnalysisStatusQuery } from '../services/queries.js';
-import { useQueryClient } from '@tanstack/react-query';
+import { subscribeBuilds } from '../services/socket.js';
+import { useBuildDetailsQuery, useLatestBuildQuery } from '../services/queries.js';
 import { getPipelineAnalysis } from '../services/api.js';
+import Skeleton from '../components/ui/Skeleton';
+
+function BuildDetailsSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="p-4 bg-white rounded shadow space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-10 w-full rounded-xl" />
+      </div>
+
+      <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900/60 p-4 space-y-3">
+        <Skeleton className="h-5 w-32" />
+        {Array.from({ length: 5 }).map((_, idx) => (
+          <Skeleton key={idx} className="h-3.5 w-full" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function BuildDetails({ buildNumber }) {
   const [data, setData] = useState(null);
@@ -16,7 +40,7 @@ export default function BuildDetails({ buildNumber }) {
   const { data: qData, isFetching } = useBuildDetailsQuery(currentBuildNumber);
   useEffect(() => {
     setData(qData || null);
-    setLoading(isFetching);
+    setLoading(Boolean(isFetching && !qData));
   }, [qData, isFetching]);
 
   // Fallback: poll latest build and auto-switch when a newer build appears
@@ -39,28 +63,11 @@ export default function BuildDetails({ buildNumber }) {
     }
   }, [latest?.buildNumber]);
 
-  // Force final flush when analysis status reaches COMPLETED (polling or sockets)
-  const { data: analysisStatusObj } = useAnalysisStatusQuery(currentBuildNumber);
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const status = typeof analysisStatusObj === 'object' ? analysisStatusObj?.status : analysisStatusObj;
-    const hasFinal = typeof analysisStatusObj === 'object' ? (analysisStatusObj?.finalResult != null) : (data?.finalResult != null);
-    if (status === 'COMPLETED' && currentBuildNumber) {
-      // Invalidate build details to refetch once and update UI, then polling stops
-      queryClient.invalidateQueries({ queryKey: ['pipeline', 'build', Number(currentBuildNumber)] });
-      // If final result still not present, continue invalidating to force a refresh on next tick
-      if (!hasFinal) {
-        queryClient.invalidateQueries({ queryKey: ['pipeline', 'build', Number(currentBuildNumber)] });
-      }
-    }
-  }, [analysisStatusObj, currentBuildNumber]);
-
   // Visual step with failsafe to simulate STORING_RESULTS on sudden COMPLETED
   const prevStepRef = useRef(null);
   const [visualStep, setVisualStep] = useState(null);
   useEffect(() => {
-    const status = typeof analysisStatusObj === 'object' ? analysisStatusObj?.status : analysisStatusObj;
-    const incoming = status || data?.analysisStatus || null;
+    const incoming = data?.analysisStatus || null;
     const prev = prevStepRef.current;
     prevStepRef.current = incoming;
     if (!incoming) return;
@@ -70,7 +77,7 @@ export default function BuildDetails({ buildNumber }) {
       return () => clearTimeout(t);
     }
     setVisualStep(incoming);
-  }, [analysisStatusObj, data?.analysisStatus]);
+  }, [data?.analysisStatus]);
 
   // Simple fetch: when analysis is completed, get final analysis and store in state
   useEffect(() => {
@@ -113,7 +120,7 @@ export default function BuildDetails({ buildNumber }) {
 
   useEffect(() => {
     if (!currentBuildNumber) return;
-    // Subscribe to analysis and build lifecycle events for this build
+    // Keep build context synced when a new build starts.
     const unsubB = subscribeBuilds({
       onNew: async (payload) => {
         if (!payload?.buildNumber) return;
@@ -131,25 +138,9 @@ export default function BuildDetails({ buildNumber }) {
           consoleUrl: '',
         });
       },
-      onStarted: async (payload) => {
-        if (payload?.buildNumber !== currentBuildNumber) return;
-      },
-      onLogUpdate: async (payload) => {
-        if (payload?.buildNumber !== currentBuildNumber) return;
-      },
-      onCompleted: async (payload) => {
-        if (payload?.buildNumber !== currentBuildNumber) return;
-      },
-    });
-    const unsubC = subscribeConnection({
-      onConnect: async () => {
-      },
-      onReconnect: async () => {
-      },
     });
     return () => {
       unsubB();
-      unsubC();
     };
   }, [currentBuildNumber]);
 
@@ -157,7 +148,7 @@ export default function BuildDetails({ buildNumber }) {
   return (
     <div className="space-y-4">
       <div className="p-4 bg-white rounded shadow">
-        {loading && <div className="text-sm text-gray-500">Loading…</div>}
+        {loading && <BuildDetailsSkeleton />}
         {error && <div className="text-sm text-red-600">{error}</div>}
         {data && (
           <div className="flex items-center justify-between">

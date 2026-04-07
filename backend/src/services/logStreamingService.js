@@ -55,6 +55,7 @@ async function fetchBuildStatus(client, jobPath, buildNumber) {
 export async function watchBuildLogs(buildNumber) {
   const n = Number(buildNumber);
   if (!Number.isFinite(n) || n <= 0) throw new Error('Invalid build number');
+
   if (watchers.has(n)) return watchers.get(n).stop; // already watching
 
   const cfg = await getJenkinsConfig();

@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle } from 'lucide-react';
-import { getRawLogs, getPipelineAnalysis } from '../services/api.js';
-import { requestLogStream, subscribeLogs } from '../services/socket.js';
-import { useAnalysisStatusQuery } from '../services/queries.js';
+import { getPipelineAnalysis, getPipelineBuild } from '../services/api.js';
+import { subscribeLogs } from '../services/socket.js';
 import PipelineGraph from './PipelineGraph';
 
 const DEFAULT_TABS = [
@@ -107,17 +106,14 @@ export default function FailureAnalysis({ run }) {
   const buildNumber = run?.buildNumber;
   const status = run?.analysisStatus;
   const buildRunning = run?.buildStatus === 'BUILDING';
-  const { data: analysisStatusFromQuery } = useAnalysisStatusQuery(buildNumber);
-  const stepFromQuery = typeof analysisStatusFromQuery === 'object' ? analysisStatusFromQuery?.status : analysisStatusFromQuery;
-  const finalResultPresent = typeof analysisStatusFromQuery === 'object' ? (analysisStatusFromQuery?.finalResult != null) : (run?.finalResult != null);
-  const resultReady = Boolean(finalResultPresent || analysisState);
+  const resultReady = Boolean(run?.finalResult != null || analysisState);
   const prevStepRef = useRef(null);
-  const [visualStep, setVisualStep] = useState(stepFromQuery || status);
+  const [visualStep, setVisualStep] = useState(status || null);
   const pipelineSuccess = String(run?.status || '').toUpperCase() === 'SUCCESS';
 
   // Determine historical executions: completed pipeline or completed analysis
   const pipelineCompleted = run?.status === 'SUCCESS' || run?.status === 'FAILURE' || run?.status === 'FAILED' || run?.buildStatus === 'COMPLETED';
-  const analysisCompleted = (localStatus || status) === 'COMPLETED' || stepFromQuery === 'COMPLETED';
+  const analysisCompleted = (localStatus || status) === 'COMPLETED';
   const isHistorical = Boolean(pipelineCompleted || analysisCompleted);
 
   const aiSkipped =
@@ -152,32 +148,16 @@ export default function FailureAnalysis({ run }) {
     })();
   }, [status, buildNumber]);
 
-  /* Also fetch when React Query-derived status reports COMPLETED */
-  useEffect(() => {
-    if (stepFromQuery !== 'COMPLETED') return;
-    if (!buildNumber) return;
-    if (analysisState) return;
-    (async () => {
-      try {
-        const data = await getPipelineAnalysis(buildNumber);
-        setAnalysisState(data || null);
-        setLocalStatus('COMPLETED');
-      } catch (err) {
-        console.error('Failed to load analysis (query status)', err);
-      }
-    })();
-  }, [stepFromQuery, buildNumber]);
-
   /* Reset local analysis when switching builds */
   useEffect(() => {
     setAnalysisState(null);
     setLocalStatus(null);
-    setVisualStep(stepFromQuery || status || null);
+    setVisualStep(status || null);
   }, [buildNumber]);
 
   /* Visual step with failsafe: if backend jumps AI_ANALYZING -> COMPLETED, simulate STORING_RESULTS for 1s */
   useEffect(() => {
-    const incoming = stepFromQuery || status || null;
+    const incoming = status || null;
     const prev = prevStepRef.current;
     prevStepRef.current = incoming;
     if (!incoming) return;
@@ -188,7 +168,7 @@ export default function FailureAnalysis({ run }) {
       return () => clearTimeout(t);
     }
     setVisualStep(incoming);
-  }, [stepFromQuery, status]);
+  }, [status]);
 
   // Progress bar driven only by analysis status from React Query
 
@@ -417,15 +397,48 @@ function SectionWrapper({ title, buildRunning, status, step, resultReady, childr
 
 /* -------------------- RAW LOGS -------------------- */
 function RawLogs({ buildNumber, logs, setLogs, finalized }) {
-  const [lines, setLines] = useState([]);
   const [streaming, setStreaming] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(false);
   const [finalizedState, setFinalizedState] = useState(Boolean(finalized));
   const containerRef = useRef(null);
+
+  const fetchLogs = useCallback(async () => {
+    if (!buildNumber) return;
+    setLoadingLogs(true);
+    try {
+      const build = await getPipelineBuild(buildNumber);
+      const nextLogs = typeof build?.logs === 'string' ? build.logs : '';
+      if (nextLogs.length > 0) {
+        setLogs(nextLogs);
+      }
+
+      const completed = Boolean(build?.logsFinal) || String(build?.buildStatus || '').toUpperCase() === 'COMPLETED';
+      if (completed) {
+        setFinalizedState(true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch raw logs', err);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [buildNumber, setLogs]);
+
+  useEffect(() => {
+    setFinalizedState(Boolean(finalized));
+  }, [finalized]);
+
+  useEffect(() => {
+    if (!buildNumber) return;
+    const hasExistingLogs = typeof logs === 'string' && logs.length > 0;
+    if (!hasExistingLogs) {
+      fetchLogs();
+    }
+  }, [buildNumber, logs, fetchLogs]);
 
   useEffect(() => {
     if (!buildNumber) return;
     // If logs already exist or finalized, render immediately without streaming
-    const existing = String(logs || '').length > 0;
+    const existing = typeof logs === 'string' && logs.length > 0;
     if (finalizedState || existing) {
       setStreaming(false);
       return;
@@ -440,63 +453,53 @@ function RawLogs({ buildNumber, logs, setLogs, finalized }) {
         setFinalizedState(true);
       },
       onFinal: (payload) => {
-        // Replace with authoritative final logs and stop streaming
-        setLogs(String(payload?.logs || ''));
+        // Replace with authoritative final logs and stop streaming.
+        // Some events may not include logs; in that case fetch from API.
+        const finalLogs = typeof payload?.logs === 'string' ? payload.logs : '';
+        if (finalLogs.length > 0) {
+          setLogs(finalLogs);
+        } else {
+          fetchLogs();
+        }
         setStreaming(false);
         setFinalizedState(true);
       },
     });
 
     return () => unsubscribe();
-  }, [buildNumber, finalizedState]);
-
-  useEffect(() => {
-    setLines(String(logs || '').split(/\r?\n/));
-  }, [logs]);
-
-  useEffect(() => {
-    setFinalizedState(Boolean(finalized));
-  }, [finalized]);
+  }, [buildNumber, finalizedState, setLogs, fetchLogs]);
 
   useEffect(() => {
     if (streaming && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [lines, streaming]);
-
-  const colorize = (line) => {
-    if (/ERROR|FAILURE|FAILED/i.test(line)) return 'text-red-400';
-    if (/SUCCESS/i.test(line)) return 'text-green-400';
-    if (/\[Pipeline\]\s*stage/i.test(line)) return 'text-blue-400';
-    return 'text-gray-300';
-  };
+  }, [logs, streaming]);
 
   return (
     <div
       ref={containerRef}
       className="log-viewer p-3 rounded max-h-[600px] overflow-auto"
     >
-      {streaming && !finalizedState && (
-        <div className="text-xs text-blue-300 mb-2">
-          Streaming logs…
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs text-slate-300">
+          {streaming && !finalizedState ? 'Streaming logs…' : finalizedState ? 'Logs finalized' : 'Fetching logs…'}
         </div>
-      )}
-      {finalizedState && (
-        <div className="text-xs text-green-300 mb-2">
-          Logs finalized
-        </div>
-      )}
-      <div className="font-mono text-xs whitespace-pre">
-        {lines.length === 0 ? (
-          <span className="text-gray-500">No logs available for this execution.</span>
-        ) : (
-          lines.map((line, i) => (
-            <div key={i} className={colorize(line)}>
-              {line || ' '}
-            </div>
-          ))
-        )}
+        <button
+          type="button"
+          onClick={fetchLogs}
+          className="text-xs px-2 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800"
+        >
+          Refresh
+        </button>
       </div>
+
+      {loadingLogs && (!logs || logs.length === 0) ? (
+        <div className="text-xs text-slate-300">Loading logs...</div>
+      ) : (
+        <pre className="text-green-400 text-xs whitespace-pre overflow-auto">
+          {logs || 'No logs available'}
+        </pre>
+      )}
     </div>
   );
 }

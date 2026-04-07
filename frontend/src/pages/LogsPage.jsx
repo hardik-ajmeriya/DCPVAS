@@ -3,13 +3,14 @@ import BuildList from '../components/logs/BuildList';
 import LogsViewer from '../components/logs/LogsViewer';
 import AIAnalysisPanel from '../components/logs/AIAnalysisPanel';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
+import LogsSkeleton from '../components/skeletons/LogsSkeleton';
 
 export default function LogsPage() {
   const [builds, setBuilds] = useState([]);
   const [selectedBuild, setSelectedBuild] = useState(null);
   const [buildData, setBuildData] = useState(null);
   const [logs, setLogs] = useState('');
-  const [loadingBuilds, setLoadingBuilds] = useState(false);
+  const [loadingBuilds, setLoadingBuilds] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -71,6 +72,8 @@ export default function LogsPage() {
 
   const effectiveError = useMemo(() => error, [error]);
 
+  const showInitialSkeleton = loadingBuilds && builds.length === 0;
+
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-[#020617] text-gray-900 dark:text-slate-100 gap-3">
       <div className="flex items-center justify-between flex-shrink-0">
@@ -82,39 +85,43 @@ export default function LogsPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 gap-3 overflow-hidden">
-        <div className="w-full md:w-1/4 lg:w-1/5 min-h-0 h-full overflow-y-auto">
-          <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
-            <BuildList
-              builds={builds}
-              selectedBuild={selectedBuild}
-              onSelectBuild={handleSelectBuild}
-              loading={loadingBuilds}
-              error={effectiveError}
-            />
+      {showInitialSkeleton ? (
+        <LogsSkeleton variant="page" />
+      ) : (
+        <div className="flex flex-1 min-h-0 gap-3 overflow-hidden">
+          <div className="w-full md:w-1/4 lg:w-1/5 min-h-0 h-full overflow-y-auto">
+            <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
+              <BuildList
+                builds={builds}
+                selectedBuild={selectedBuild}
+                onSelectBuild={handleSelectBuild}
+                loading={loadingBuilds}
+                error={effectiveError}
+              />
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 h-full overflow-y-auto">
+            <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
+              <LogsViewer
+                logs={logs}
+                loading={loading}
+                hasSelectedBuild={selectedBuild != null}
+                error={effectiveError && !loadingBuilds ? effectiveError : null}
+              />
+            </div>
+          </div>
+          <div className="w-1/4 min-h-0 h-full overflow-y-auto hidden md:block">
+            <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
+              <AIAnalysisPanel
+                selectedBuild={selectedBuild}
+                buildData={buildData}
+                loading={loading}
+                error={effectiveError && !loadingBuilds ? effectiveError : null}
+              />
+            </div>
           </div>
         </div>
-        <div className="flex-1 min-h-0 h-full overflow-y-auto">
-          <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
-            <LogsViewer
-              logs={logs}
-              loading={loading}
-              hasSelectedBuild={selectedBuild != null}
-              error={effectiveError && !loadingBuilds ? effectiveError : null}
-            />
-          </div>
-        </div>
-        <div className="w-1/4 min-h-0 h-full overflow-y-auto hidden md:block">
-          <div className="min-h-full bg-white dark:bg-white/5 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_20px_rgba(0,0,0,0.3)] rounded-2xl">
-            <AIAnalysisPanel
-              selectedBuild={selectedBuild}
-              buildData={buildData}
-              loading={loading}
-              error={effectiveError && !loadingBuilds ? effectiveError : null}
-            />
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

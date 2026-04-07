@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Check,
   Circle,
@@ -7,11 +7,10 @@ import {
   FlaskConical,
   GitBranch,
   Hammer,
-  Loader2,
   Rocket,
   X,
 } from 'lucide-react';
-import { getLatestPipelineFlow } from '../services/api.js';
+import Skeleton from './ui/Skeleton';
 
 const JENKINS_BASE = import.meta.env.VITE_JENKINS_BASE_URL || '';
 
@@ -100,42 +99,13 @@ const stageVariants = {
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } },
 };
 
-export default function PipelineFlow() {
-  const [stages, setStages] = useState([]);
-  const [buildNumber, setBuildNumber] = useState(null);
-  const [status, setStatus] = useState('pending');
-  const [durationMs, setDurationMs] = useState(null);
-  const [jobName, setJobName] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      try {
-        const data = await getLatestPipelineFlow();
-        if (!mounted) return;
-        setStages(Array.isArray(data?.stages) ? data.stages : []);
-        setBuildNumber(data?.buildNumber ?? null);
-        setStatus(data?.status || 'pending');
-        setDurationMs(typeof data?.durationMs === 'number' ? data.durationMs : null);
-        setJobName(data?.jobName || '');
-      } catch (err) {
-        if (!mounted) return;
-        setStages([]);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    load();
-    const intervalId = setInterval(load, 5000);
-
-    return () => {
-      mounted = false;
-      clearInterval(intervalId);
-    };
-  }, []);
+export default function PipelineFlow({ flowData }) {
+  const stages = Array.isArray(flowData?.stages) ? flowData.stages : [];
+  const buildNumber = flowData?.buildNumber ?? null;
+  const status = flowData?.status || 'pending';
+  const durationMs = typeof flowData?.durationMs === 'number' ? flowData.durationMs : null;
+  const jobName = flowData?.jobName || '';
+  const loading = !flowData;
 
   const normalizedStages = useMemo(
     () => (stages || []).map((stage) => ({
@@ -193,9 +163,23 @@ export default function PipelineFlow() {
         </div>
 
         {loading && (
-          <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-slate-300/80">
-            <div className="w-3 h-3 rounded-full bg-gray-400 dark:bg-slate-500 animate-pulse" />
-            <span>Loading latest pipeline flow...</span>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+              <Skeleton className="h-8 w-24 rounded-lg" />
+            </div>
+            <Skeleton className="h-12 w-full rounded-xl" />
+            <div className="grid grid-cols-5 gap-4">
+              {Array.from({ length: 5 }).map((_, idx) => (
+                <div key={idx} className="flex flex-col items-center gap-2">
+                  <Skeleton className="h-14 w-14 rounded-full" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -228,14 +212,7 @@ export default function PipelineFlow() {
                   const statusBadge = (() => {
                     if (isRunning) {
                       return (
-                        <motion.div
-                          initial={{ scale: 0.9, opacity: 0.8 }}
-                          animate={{ scale: 1.05, opacity: 1 }}
-                          transition={{ duration: 0.25 }}
-                          className="text-yellow-200"
-                        >
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        </motion.div>
+                        <span className="inline-flex h-3.5 w-3.5 rounded-full bg-yellow-200 animate-pulse" />
                       );
                     }
                     if (isSuccess) {

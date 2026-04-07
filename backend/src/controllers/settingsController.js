@@ -104,7 +104,11 @@ export async function testJenkinsConnection(req, res) {
     if (jobName) update.jobName = jobName;
     if (apiToken) update.apiToken = encrypt(apiToken);
 
-    await JenkinsSettings.findOneAndUpdate({}, { $set: update }, { upsert: true, new: true });
+    await JenkinsSettings.findOneAndUpdate(
+      {},
+      { $set: update },
+      { upsert: true, new: true }
+    );
 
     return res.json({
       success: true,

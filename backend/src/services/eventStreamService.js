@@ -37,6 +37,7 @@ export function registerClient(req, res) {
 
 export function broadcastEvent(event) {
   if (!event) return;
+
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const client of Array.from(clients)) {
     try {

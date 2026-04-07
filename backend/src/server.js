@@ -1,30 +1,66 @@
 import app from './app.js';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { initJenkinsPolling, setSocketIO as setJenkinsIO } from './services/jenkinsService.js';
+import { setSocketIO as setJenkinsIO } from './services/jenkinsService.js';
 import { setSocketIO as setLogStreamIO, watchBuildLogs, isWatching } from './services/logStreamingService.js';
-import { backfillPipelineRunsFromRawLogs } from './services/pipelineRunService.js';
+import { allowedOrigins } from './config/cors.js';
 import { connectMongo } from './config/mongo.js';
 import config from './config/env.js';
+
+async function listenWithFallback(server, preferredPort) {
+  const basePort = Number(preferredPort) || 4000;
+  const allowFallback = process.env.NODE_ENV !== 'production';
+  const maxAttempts = allowFallback ? 10 : 1;
+
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    const candidatePort = basePort + attempt;
+
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (err) => {
+          server.off('listening', onListening);
+          reject(err);
+        };
+        const onListening = () => {
+          server.off('error', onError);
+          resolve();
+        };
+
+        server.once('error', onError);
+        server.once('listening', onListening);
+        server.listen(candidatePort);
+      });
+
+      return candidatePort;
+    } catch (err) {
+      const isAddressInUse = err?.code === 'EADDRINUSE';
+      const hasMoreAttempts = attempt + 1 < maxAttempts;
+
+      if (!isAddressInUse || !hasMoreAttempts) {
+        throw err;
+      }
+
+      console.warn(`[startup] Port ${candidatePort} is already in use; trying ${candidatePort + 1}.`);
+      attempt += 1;
+    }
+  }
+
+  throw new Error('Unable to bind backend server to an available port');
+}
 
 async function startServer() {
   try {
     await connectMongo();
 
-    try {
-      const backfillResult = await backfillPipelineRunsFromRawLogs();
-      if (backfillResult?.created) {
-        console.log(`Backfilled ${backfillResult.created} pipeline runs from raw logs`);
-      }
-    } catch (err) {
-      console.error('Pipeline run backfill failed:', err?.message || err);
-    }
+    const socketAllowedOrigins = Array.from(new Set(allowedOrigins));
 
     const server = http.createServer(app);
     const io = new SocketIOServer(server, {
       cors: {
-        origin: '*',
+        origin: socketAllowedOrigins,
         methods: ['GET', 'POST'],
+        credentials: true,
       },
     });
 
@@ -34,7 +70,6 @@ async function startServer() {
     setLogStreamIO(io);
 
     io.on('connection', (socket) => {
-      // Minimal connection log; namespaces/rooms can be added later
       console.log('Socket connected:', socket.id);
       // Allow clients to request log streaming for a specific build
       socket.on('logs:watch', async (payload) => {
@@ -53,16 +88,13 @@ async function startServer() {
       });
     });
 
-    server.listen(config.port, () => {
-      console.log(`DCPVAS backend listening on port ${config.port}`);
-      console.log('Jenkins env status:', {
-        hasUrl: !!config.jenkins.url,
-        hasJob: !!config.jenkins.job,
-        hasUser: !!config.jenkins.user,
-        hasToken: !!config.jenkins.token,
-      });
-      // Start Live Jenkins polling / background watcher (~2.5s interval)
-      initJenkinsPolling(2500);
+    const activePort = await listenWithFallback(server, config.port);
+    console.log(`DCPVAS backend listening on port ${activePort}`);
+    console.log('Jenkins env status:', {
+      hasUrl: !!config.jenkins.url,
+      hasJob: !!config.jenkins.job,
+      hasUser: !!config.jenkins.user,
+      hasToken: !!config.jenkins.token,
     });
   } catch (err) {
     console.error('Fatal startup error', err?.message || err);

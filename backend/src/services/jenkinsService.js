@@ -21,6 +21,16 @@ export function setSocketIO(socketInstance) {
   io = socketInstance || null;
 }
 
+let cache = {
+  lastUpdated: null,
+  buildNumber: null,
+  latest: null,
+  logs: '',
+  stages: [],
+};
+let lastKnownBuildNumber = null;
+let lastBroadcast = { buildNumber: null, status: null };
+
 export async function getJenkinsConfig() {
   const settings = await JenkinsSettings.findOne();
   if (!settings) throw new Error('Jenkins not configured');
@@ -54,19 +64,6 @@ async function getClient() {
     timeout: 15000,
   });
 }
-
-// In-memory cache for near real-time monitoring
-let cache = {
-  lastUpdated: null,
-  buildNumber: null,
-  latest: null, // normalized run object
-  logs: '',
-  stages: [],
-};
-// Track last known build number to emit build:new on increments
-let lastKnownBuildNumber = null;
-// Track last SSE payload to avoid spamming identical updates
-let lastBroadcast = { buildNumber: null, status: null };
 
 // Map Jenkins build payload to a consistent human-friendly status
 function mapBuildStatus(build) {
@@ -252,6 +249,8 @@ function parseStagesFromLogs(logText) {
 }
 
 export async function updateCacheOnce() {
+  const previousBuildNumber = lastKnownBuildNumber;
+
   // Validate DB-backed Jenkins config
   const cfg = await getJenkinsConfig();
   console.log('Fetching Jenkins job:', cfg.jobName);
@@ -260,12 +259,8 @@ export async function updateCacheOnce() {
   if (normalized?.buildNumber != null) {
     console.log('Build number:', normalized.buildNumber);
     // If build number increased, emit build:new for frontend hard reset
-    if (
-      typeof lastKnownBuildNumber === 'number' &&
-      normalized.buildNumber > lastKnownBuildNumber
-    ) {
+    if (typeof previousBuildNumber === 'number' && normalized.buildNumber > previousBuildNumber) {
       try {
-        const cfg = await getJenkinsConfig();
         io?.emit('build:new', {
           jobName: cfg.jobName || 'unknown-job',
           buildNumber: normalized.buildNumber,
@@ -274,12 +269,14 @@ export async function updateCacheOnce() {
       } catch {}
     }
   }
+
   // Build state guard & DB source of truth
   const client = await getClient();
   const jobPath = await buildJobPath();
   const buildNumber = normalized?.buildNumber;
   let logs = cache.logs;
   let stages = cache.stages;
+
   if (buildNumber != null) {
     try {
       const statusResp = await client.get(`${jobPath}/${buildNumber}/api/json`);
@@ -299,15 +296,18 @@ export async function updateCacheOnce() {
             io?.emit('build:started', { buildNumber });
           } catch {}
         }
+
         // Fetch incremental consoleText and append
         const currentLogs = await fetchFullLog(buildNumber);
         const currentSize = (currentLogs || '').length;
         const lastSize = rawExisting?.lastLogSize || 0;
         const newChunk = currentSize > lastSize ? (currentLogs || '').slice(lastSize) : '';
+
         // Emit live update for streaming UI
         if (newChunk) {
           try { io?.emit('build:log_update', { buildNumber, newLogsChunk: newChunk }); } catch {}
         }
+
         await PipelineRawLog.findOneAndUpdate(
           { jobName, buildNumber },
           {
@@ -322,6 +322,7 @@ export async function updateCacheOnce() {
               building: true,
               logsFinal: false,
               analysisStatus: 'WAITING_FOR_BUILD',
+              logs: currentLogs || rawExisting?.logs || rawExisting?.rawLogs || '',
               rawLogs: currentLogs || rawExisting?.rawLogs || '',
               lastLogSize: currentSize,
               branch: branch || rawExisting?.branch || null,
@@ -352,6 +353,7 @@ export async function updateCacheOnce() {
               buildStatus: 'COMPLETED',
               building: false,
               stages,
+              logs: logs || '',
               rawLogs: logs || '',
               lastLogSize: currentSize,
               logsFinal: !!stabilized,
@@ -363,23 +365,27 @@ export async function updateCacheOnce() {
           },
           { upsert: true, new: true }
         );
+
         try {
           await upsertPipelineRunFromRaw(doc);
         } catch (err) {
           console.error('[pipelineRun] failed to upsert from raw log:', err?.message || err);
         }
+
         // Emit completion event and final logs for reconciliation
         try {
           io?.emit('build:completed', { buildNumber, result: statusNorm });
           io?.emit('logs:complete', { buildNumber, logs: logs || '', status: statusNorm });
         } catch {}
+
         try {
-          broadcastEvent({ type: 'pipeline_update', buildNumber, jobName: jobName, status: statusNorm });
+          broadcastEvent({ type: 'pipeline_update', buildNumber, jobName, status: statusNorm });
           if (statusNorm === 'SUCCESS') {
             broadcastEvent({ type: 'analysis_completed', buildNumber, jobName, status: 'skipped' });
           }
           lastBroadcast = { buildNumber, status: statusNorm };
         } catch {}
+
         // SUCCESS builds → mark NOT_REQUIRED and skip AI
         if (statusNorm !== 'FAILURE') {
           try {
@@ -391,10 +397,17 @@ export async function updateCacheOnce() {
             );
           } catch {}
         }
+
         // FAILURE builds → schedule AI only when stabilization true and no existing completed analysis for same result
         if (statusNorm === 'FAILURE') {
           try {
-            const existingAI = await PipelineAIAnalysis.findOne({ jobName, buildNumber, finalResult: 'FAILURE', analysisStatus: 'COMPLETED' }).lean();
+            const existingAI = await PipelineAIAnalysis.findOne({
+              jobName,
+              buildNumber,
+              finalResult: 'FAILURE',
+              analysisStatus: 'COMPLETED',
+            }).lean();
+
             if (!stabilized) {
               console.log(`[AI] Waiting for logs to stabilize (#${buildNumber}) size=${currentSize}`);
             } else if (existingAI) {
@@ -405,18 +418,18 @@ export async function updateCacheOnce() {
               if (!hasFinishedLine) {
                 console.log(`[AI] Waiting for final 'Finished:' line (#${buildNumber})`);
               } else {
-              // Atomically transition to AI_ANALYZING; block duplicates
-              const res = await PipelineRawLog.updateOne(
-                { jobName, buildNumber, analysisStatus: { $in: ['WAITING_FOR_LOGS', 'WAITING_FOR_BUILD'] } },
-                { $set: { analysisStatus: 'AI_ANALYZING' } }
-              );
-              if (res.modifiedCount === 1) {
-                console.log(`[ANALYSIS] scheduling started (#${buildNumber})`);
-                io?.emit('analysis:started', { buildNumber });
-                await storeAIAnalysisForRawLog(doc, { io });
-              } else {
-                console.log(`[ANALYSIS] blocked: conflict prevented (#${buildNumber})`);
-              }
+                // Atomically transition to AI_ANALYZING; block duplicates
+                const res = await PipelineRawLog.updateOne(
+                  { jobName, buildNumber, analysisStatus: { $in: ['WAITING_FOR_LOGS', 'WAITING_FOR_BUILD'] } },
+                  { $set: { analysisStatus: 'AI_ANALYZING' } }
+                );
+                if (res.modifiedCount === 1) {
+                  console.log(`[ANALYSIS] scheduling started (#${buildNumber})`);
+                  io?.emit('analysis:started', { buildNumber });
+                  await storeAIAnalysisForRawLog(doc, { io });
+                } else {
+                  console.log(`[ANALYSIS] blocked: conflict prevented (#${buildNumber})`);
+                }
               }
             }
           } catch (err) {
@@ -428,46 +441,28 @@ export async function updateCacheOnce() {
       // resilient
     }
   }
-  cache = {
+
+  const nextCache = {
     lastUpdated: new Date().toISOString(),
     buildNumber: normalized?.buildNumber ?? cache.buildNumber,
     latest: { ...normalized, stages },
     logs,
     stages,
   };
+  cache = nextCache;
   if (normalized?.buildNumber != null) lastKnownBuildNumber = normalized.buildNumber;
-  return cache;
+  return nextCache;
 }
 
-let pollerStarted = false;
-async function startPoller(intervalMs = 2500) {
-  if (pollerStarted) return;
-  // Ensure Jenkins is configured in DB
-  try {
-    await getJenkinsConfig();
-  } catch {
-    return;
-  }
-  pollerStarted = true;
-  updateCacheOnce().catch(() => {});
-  setInterval(() => {
-    updateCacheOnce().catch(() => {});
-  }, intervalMs);
-}
-
-export function initJenkinsPolling(intervalMs = 2500) {
-  // Start background watcher that periodically checks Jenkins for latest build
-  // Default interval respects Jenkins load constraints (30s)
-  startPoller(intervalMs);
-  // Also ensure any previously stored raw logs without AI analysis get processed
-  ensureMissingAnalysesScheduled().catch(() => {});
-  setInterval(() => ensureMissingAnalysesScheduled().catch(() => {}), 30000);
+export function initJenkinsPolling() {
+  // Polling is request-scoped in this service.
+  return false;
 }
 
 export async function getLatestCached() {
   // Throws if Jenkins isn't configured in DB
   await getJenkinsConfig();
-  if (!cache.lastUpdated) await updateCacheOnce();
+  if (!cache.lastUpdated) return updateCacheOnce();
   return cache;
 }
 
@@ -639,15 +634,28 @@ export async function getBuildDetails(buildNumber) {
 // Scan recent raw logs and schedule AI analysis for any missing entries
 async function ensureMissingAnalysesScheduled() {
   try {
-    const raws = await PipelineRawLog.find().sort({ executedAt: -1 }).limit(5);
+    const raws = await PipelineRawLog.find({}).sort({ executedAt: -1 }).limit(5);
     for (const raw of raws) {
-      const aiCompleted = await PipelineAIAnalysis.findOne({ jobName: raw.jobName, buildNumber: raw.buildNumber, finalResult: 'FAILURE', analysisStatus: 'COMPLETED' }).lean();
-      const aiRunning = await PipelineAIAnalysis.findOne({ jobName: raw.jobName, buildNumber: raw.buildNumber, finalResult: 'FAILURE', analysisStatus: 'AI_ANALYZING' }).lean();
+      const aiCompleted = await PipelineAIAnalysis.findOne({
+        jobName: raw.jobName,
+        buildNumber: raw.buildNumber,
+        finalResult: 'FAILURE',
+        analysisStatus: 'COMPLETED',
+      }).lean();
+      const aiRunning = await PipelineAIAnalysis.findOne({
+        jobName: raw.jobName,
+        buildNumber: raw.buildNumber,
+        finalResult: 'FAILURE',
+        analysisStatus: 'AI_ANALYZING',
+      }).lean();
       // Startup safety: do NOT schedule new analyses. Only resume if raw indicates AI_ANALYZING and there is no completed analysis.
       if (raw.analysisStatus === 'AI_ANALYZING' && raw.buildStatus === 'COMPLETED' && raw.logsFinal === true && !aiCompleted) {
         console.log(`[ANALYSIS] resuming in-progress analysis for failed build #${raw.buildNumber}`);
         io?.emit('analysis:started', { buildNumber: raw.buildNumber });
-        await storeAIAnalysisForRawLog(await PipelineRawLog.findById(raw._id), { io });
+        const rawDoc = await PipelineRawLog.findById(raw._id);
+        if (rawDoc) {
+          await storeAIAnalysisForRawLog(rawDoc, { io });
+        }
       } else if (aiRunning) {
         // Keep running; no action
       }

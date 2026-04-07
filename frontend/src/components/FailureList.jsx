@@ -1,6 +1,11 @@
 import { Link } from 'react-router-dom';
+import FailureListSkeleton from './skeletons/FailureListSkeleton';
 
-export default function FailureList({ failures = [] }) {
+export default function FailureList({ failures = [], loading = false }) {
+  if (loading) {
+    return <FailureListSkeleton variant="compact" rows={5} />;
+  }
+
   const recent = Array.isArray(failures) ? failures.slice(0, 5) : [];
 
   return (

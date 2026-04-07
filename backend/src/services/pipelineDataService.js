@@ -63,7 +63,6 @@ export async function getLatestFailures(limit = 10) {
 export async function getHistory(limit = 50) {
   const n = limit === 'all' ? 1000 : Number(limit) || 50;
   const raws = await PipelineRawLog.find().sort({ executedAt: -1 }).limit(n).lean();
-  const byKey = new Map(raws.map((r) => [`${r.jobName}#${r.buildNumber}`, r]));
   const aiDocs = await PipelineAIAnalysis.find({
     jobName: { $in: raws.map((r) => r.jobName) },
     buildNumber: { $in: raws.map((r) => r.buildNumber) },
@@ -106,13 +105,14 @@ export async function getBuildWithAnalysis(buildNumber) {
 export async function getRawLogs(buildNumber) {
   const raw = await PipelineRawLog.findOne({ buildNumber }).lean();
   if (!raw) return null;
+  const fullLogs = raw.logs || raw.rawLogs || '';
   // For detection only, compute a cleaned version; return original unfiltered logs to UI
-  const cleaned = decodeJenkinsConsole(raw.rawLogs || '');
+  const cleaned = decodeJenkinsConsole(fullLogs);
   const isCompilationFailure =
     raw.status === 'FAILURE' && (!raw.stages || raw.stages.length === 0) && (!cleaned || cleaned.trim().length === 0);
   const placeholder =
     'No runtime logs available. The pipeline failed during Jenkinsfile parsing before execution started.';
-  const outLogs = isCompilationFailure ? placeholder : (raw.rawLogs || '');
+  const outLogs = isCompilationFailure ? placeholder : fullLogs;
   return { rawLogs: outLogs, consoleUrl: raw.consoleUrl, executedAt: raw.executedAt };
 }
 

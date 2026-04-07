@@ -5,6 +5,8 @@ import Modal from '../components/Modal';
 import PipelineGraph from '../components/PipelineGraph';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
 import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
+import PipelineListSkeleton from '../components/skeletons/PipelineListSkeleton';
+import Skeleton from '../components/ui/Skeleton';
 
 export default function History() {
   const [rows, setRows] = useState([]);
@@ -61,7 +63,7 @@ export default function History() {
           r.buildNumber === p?.buildNumber ? { ...r, status: 'FAILURE' } : r
         )));
       },
-      onComplete: (p) => {
+      onCompleted: (p) => {
         setRows((prev) => prev.map((r) => (
           r.buildNumber === p?.buildNumber ? { ...r, status: 'FAILURE' } : r
         )));
@@ -81,26 +83,44 @@ export default function History() {
     }
   };
 
-  // Modal polling: fetch build every 2s until analysis progress reaches COMPLETED
+  // Modal polling: fetch with safer cadence and backoff until terminal status
   useEffect(() => {
     if (!selected?.buildNumber) return;
     let cancelled = false;
     let timer = null;
+    const baseDelayMs = 7000;
+    const maxDelayMs = 15000;
+    let currentDelayMs = baseDelayMs;
+
+    const isTerminal = (detail) => {
+      const analysisProgress = String(detail?.analysisStatus || detail?.progress || '').toUpperCase();
+      const pipelineStatus = String(detail?.status || '').toUpperCase();
+      const buildStatus = String(detail?.buildStatus || '').toUpperCase();
+      return (
+        analysisProgress === 'COMPLETED' ||
+        analysisProgress === 'SKIPPED' ||
+        analysisProgress === 'NOT_REQUIRED' ||
+        pipelineStatus === 'SUCCESS' ||
+        buildStatus === 'COMPLETED'
+      );
+    };
+
     const fetchOnce = async () => {
       try {
         const detail = await getPipelineBuild(selected.buildNumber);
         if (cancelled) return;
         if (detail) {
           setSelected((prev) => ({ ...(prev || {}), ...(detail || {}) }));
-          const progress = String(detail?.analysisStatus || detail?.progress || '').toUpperCase();
-          // Stop polling only when progress === COMPLETED
-          if (progress === 'COMPLETED') return;
+          if (isTerminal(detail)) return;
         }
+        currentDelayMs = baseDelayMs;
       } catch (_) {
-        // Ignore transient errors during polling
+        // Back off on transient failures to avoid rapid retries.
+        currentDelayMs = Math.min(maxDelayMs, currentDelayMs * 2);
       }
-      timer = setTimeout(fetchOnce, 2000);
+      timer = setTimeout(fetchOnce, currentDelayMs);
     };
+
     fetchOnce();
     return () => {
       cancelled = true;
@@ -149,7 +169,7 @@ export default function History() {
             </select>
           </label>
         </div>
-        {loading && <div className="text-sm text-gray-500">Loading…</div>}
+        {loading && <PipelineListSkeleton variant="cards" rows={6} />}
         {error && <div className="text-sm text-red-600">{error}</div>}
         {!loading && filteredRows.length === 0 && <div className="text-sm text-gray-500">No history yet.</div>}
 
@@ -224,7 +244,11 @@ export default function History() {
             <FailureAnalysis run={selected} />
           </div>
         ) : (
-          <div className="text-sm text-gray-600">Loading…</div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-4 w-56" />
+            <Skeleton className="h-28 w-full rounded-xl" />
+          </div>
         )}
       </Modal>
     </div>
