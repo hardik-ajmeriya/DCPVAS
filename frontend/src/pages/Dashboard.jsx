@@ -16,6 +16,7 @@ import DashboardCardSkeleton from '../components/skeletons/DashboardCardSkeleton
 import PipelineListSkeleton from '../components/skeletons/PipelineListSkeleton';
 import FailureListSkeleton from '../components/skeletons/FailureListSkeleton';
 import Skeleton from '../components/ui/Skeleton';
+import { API_ORIGIN } from '../config/apiConfig.js';
 
 const ANALYSIS_STAGE_ORDER = {
   fetch_logs: 1,
@@ -68,9 +69,11 @@ export default function Dashboard({ mode }) {
   const syncInFlightRef = useRef(false);
   const syncQueuedRef = useRef(false);
   const syncTimerRef = useRef(null);
+  const pollIntervalRef = useRef(null);
   const lastSyncAtRef = useRef(0);
   const metricsInFlightRef = useRef(false);
   const lastMetricsFetchAtRef = useRef(0);
+  const [pipelineState, setPipelineState] = useState(null);
 
   const connectionLoading = isConnected === null;
   const disconnected = isConnected === false || warning;
@@ -96,6 +99,10 @@ export default function Dashboard({ mode }) {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
         syncTimerRef.current = null;
+      }
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
     };
   }, []);
@@ -135,114 +142,74 @@ export default function Dashboard({ mode }) {
     setAnalysisState({ stage: resolvedStage, skipped: resolvedStage === 'skipped' });
   }, [buildData?.buildNumber, buildData?.progress, buildData?.analysisStatus, buildData?.analysisStep, buildData?.status]);
 
-  const syncLatestPipeline = useCallback(async ({ force = false } = {}) => {
-    if (!connected) return;
-
-    const now = Date.now();
-    const minSyncGapMs = 1200;
-    if (!force && now - lastSyncAtRef.current < minSyncGapMs) {
-      return;
-    }
-
-    if (syncInFlightRef.current) {
-      syncQueuedRef.current = true;
-      return;
-    }
-
-    syncInFlightRef.current = true;
-    lastSyncAtRef.current = now;
-
-    try {
-      const data = await getLatestPipeline();
-      const payload = data?.data ?? data;
-
-      if (payload === null || payload === undefined || (data?.success === false && data?.data === null)) {
-        setBuildData(null);
-        setLoading(false);
-        setError('');
-        return;
-      }
-
-      const getStagesSignature = (val) => {
-        if (!Array.isArray(val?.stages)) return '';
-        return val.stages.map((stage) => `${stage?.name || ''}:${stage?.status || ''}`).join('|');
-      };
-
-      const progress = payload?.progress ?? payload?.analysisStatus ?? payload?.analysisStep ?? null;
-      const normalized = { ...(payload || {}), progress };
-
-      setBuildData((prev) => {
-        if (!prev) {
-          setLoading(false);
-          setError('');
-          return normalized;
-        }
-
-        const prevStages = getStagesSignature(prev);
-        const nextStages = getStagesSignature(normalized);
-        if (
-          prev.buildNumber !== normalized.buildNumber ||
-          prev.progress !== normalized.progress ||
-          prev.analysisStatus !== normalized.analysisStatus ||
-          prev.status !== normalized.status ||
-          prev.logsFinal !== normalized.logsFinal ||
-          prevStages !== nextStages
-        ) {
-          setError('');
-          return normalized;
-        }
-
-        return prev;
-      });
-    } catch (e) {
-      console.error('Pipeline refresh failed', e);
-      setError('Failed to load latest');
-      setLoading(false);
-    } finally {
-      syncInFlightRef.current = false;
-
-      if (syncQueuedRef.current) {
-        syncQueuedRef.current = false;
-        if (syncTimerRef.current) {
-          clearTimeout(syncTimerRef.current);
-        }
-        syncTimerRef.current = setTimeout(() => {
-          syncLatestPipeline({ force: true });
-        }, 900);
-      }
-    }
-  }, [connected]);
-
   useEffect(() => {
     if (!connected) {
+      setPipelineState(null);
       setBuildData(null);
       setLoading(false);
       return undefined;
     }
 
-    syncLatestPipeline({ force: true });
+    setLoading(true);
+    const origin = API_ORIGIN || '';
+    const url = origin ? `${origin}/api/pipeline/stream` : '/api/pipeline/stream';
+    const es = new EventSource(url);
 
-    const intervalId = setInterval(() => {
-      syncLatestPipeline();
-    }, 8000);
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Pipeline SSE response:', data);
+        setPipelineState(data);
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed to parse pipeline SSE payload', err);
+        setLoading(false);
+      }
+    };
 
-    const unsubBuilds = subscribeBuilds({
-      onNew: () => syncLatestPipeline(),
-      onStarted: () => syncLatestPipeline(),
-      onCompleted: () => syncLatestPipeline({ force: true }),
-    });
-    const unsubAnalysis = subscribeAnalysis({
-      onProgress: () => syncLatestPipeline(),
-      onCompleted: () => syncLatestPipeline({ force: true }),
-      onSkipped: () => syncLatestPipeline({ force: true }),
-    });
+    es.onerror = (err) => {
+      console.error('Pipeline SSE error', err);
+      // Close the connection so the browser stops retrying a broken stream.
+      try {
+        es.close();
+      } catch (_) {
+        // ignore
+      }
+      setLoading(false);
+      setError('Failed to load latest');
+    };
 
     return () => {
-      clearInterval(intervalId);
-      unsubBuilds();
-      unsubAnalysis();
+      es.close();
     };
-  }, [connected, syncLatestPipeline]);
+  }, [connected]);
+
+  useEffect(() => {
+    if (!pipelineState) return;
+
+    const ai = pipelineState.aiStatus || {};
+    let progressStage = null;
+    if (ai.completed) progressStage = 'completed';
+    else if (ai.storing) progressStage = 'store_results';
+    else if (ai.analyzing) progressStage = 'ai_analysis';
+    else if (ai.filteringErrors) progressStage = 'filter_errors';
+    else if (ai.fetchingLogs) progressStage = 'fetch_logs';
+
+    setBuildData((prev) => ({
+      ...(prev || {}),
+      jobName: pipelineState.jobName || prev?.jobName || 'Pipeline',
+      buildNumber: pipelineState.buildNumber ?? prev?.buildNumber ?? null,
+      status: pipelineState.status || prev?.status || 'UNKNOWN',
+      buildStatus: pipelineState.status || prev?.buildStatus || 'UNKNOWN',
+      building: !!pipelineState.building,
+      stages: Array.isArray(pipelineState.stages) ? pipelineState.stages : [],
+      executedAt: pipelineState.executedAt || prev?.executedAt || null,
+      analysisStatus: progressStage ? progressStage.toUpperCase() : (prev?.analysisStatus || null),
+      progress: progressStage || prev?.progress || null,
+    }));
+    setLoading(false);
+    setError('');
+  }, [pipelineState]);
 
   // Dashboard metrics: fetch on mount, refresh every 30s, and debounce event-triggered refreshes
   useEffect(() => {
