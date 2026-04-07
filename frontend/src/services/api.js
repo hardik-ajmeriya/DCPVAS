@@ -4,6 +4,13 @@ import { getAuthToken } from './authToken.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function freshParams(params = {}) {
+  return {
+    ...params,
+    _ts: Date.now(),
+  };
+}
+
 function isTransientApiError(err) {
   const status = err?.response?.status;
   return !status || status === 408 || status === 425 || status === 429 || status >= 500;
@@ -68,7 +75,9 @@ export async function getJenkinsSettings() {
 
 export async function getLatestPipeline() {
   try {
-    const { data } = await withBackoff(() => api.get('/pipeline/latest'), {
+    const { data } = await withBackoff(() => api.get('/pipeline/latest', {
+      params: freshParams(),
+    }), {
       retries: 1,
       baseDelayMs: 600,
     });
@@ -82,7 +91,9 @@ export async function getLatestPipeline() {
 }
 
 export async function getLatestPipelineFlow() {
-  const { data } = await api.get('/pipeline/latest-flow');
+  const { data } = await api.get('/pipeline/latest-flow', {
+    params: freshParams(),
+  });
   return data; // { buildNumber, stages }
 }
 
@@ -123,7 +134,9 @@ export async function getDashboardMetrics() {
 
 export async function getPipelineBuild(number) {
   try {
-    const { data } = await withBackoff(() => api.get(`/pipeline/build/${number}`), {
+    const { data } = await withBackoff(() => api.get(`/pipeline/build/${number}`, {
+      params: freshParams(),
+    }), {
       retries: 1,
       baseDelayMs: 700,
     });

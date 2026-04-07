@@ -15,6 +15,12 @@ import { upsertPipelineRunFromRaw } from './pipelineRunService.js';
 import { broadcastEvent } from './eventStreamService.js';
 import { getLatestWithAnalysis } from './pipelineDataService.js';
 
+const JENKINS_NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
 // Optional Socket.IO instance for emitting real-time events
 let io = null;
 export function setSocketIO(socketInstance) {
@@ -30,17 +36,35 @@ let cache = {
 };
 let lastKnownBuildNumber = null;
 let lastBroadcast = { buildNumber: null, status: null };
+let pollingTimer = null;
+const POLLING_INTERVAL_MS = 5000;
 
 export async function getJenkinsConfig() {
   const settings = await JenkinsSettings.findOne();
   if (!settings) throw new Error('Jenkins not configured');
+  let password;
+  try {
+    password = decrypt(settings.apiToken);
+    console.log('Decrypt success');
+  } catch (err) {
+    console.error('[JenkinsConfig] Failed to decrypt stored Jenkins token:', err?.message || err);
+    try {
+      await JenkinsSettings.deleteMany({});
+      console.warn('[JenkinsConfig] Cleared invalid Jenkins settings; user must reconfigure credentials.');
+    } catch (cleanupErr) {
+      console.error('[JenkinsConfig] Failed to clear invalid Jenkins settings:', cleanupErr?.message || cleanupErr);
+    }
+    const error = new Error('Invalid stored credentials');
+    error.code = 'JENKINS_INVALID_CREDENTIALS';
+    throw error;
+  }
 
   return {
     baseUrl: settings.jenkinsUrl,
     jobName: settings.jobName,
     auth: {
       username: settings.username,
-      password: decrypt(settings.apiToken),
+      password,
     },
   };
 }
@@ -58,11 +82,35 @@ export function isLiveEnabled() {
 
 async function getClient() {
   const cfg = await getJenkinsConfig();
-  return axios.create({
+  const client = axios.create({
     baseURL: cfg.baseUrl,
     auth: { username: cfg.auth.username || '', password: cfg.auth.password || '' },
     timeout: 15000,
+    headers: {
+      ...JENKINS_NO_CACHE_HEADERS,
+    },
   });
+
+  // Add a timestamp query param to GET requests to avoid intermediary/proxy caching.
+  client.interceptors.request.use((requestConfig) => {
+    const nextConfig = { ...requestConfig };
+    nextConfig.headers = {
+      ...(requestConfig.headers || {}),
+      ...JENKINS_NO_CACHE_HEADERS,
+    };
+
+    const method = String(nextConfig.method || 'get').toLowerCase();
+    if (method === 'get') {
+      nextConfig.params = {
+        ...(requestConfig.params || {}),
+        _ts: Date.now(),
+      };
+    }
+
+    return nextConfig;
+  });
+
+  return client;
 }
 
 // Map Jenkins build payload to a consistent human-friendly status
@@ -119,10 +167,22 @@ async function buildJobPath(jobNameOverride) {
 }
 
 async function fetchLatestBuildJson(jobNameOverride) {
-  const url = `${await buildJobPath(jobNameOverride)}/lastBuild/api/json`;
+  const jobPath = await buildJobPath(jobNameOverride);
   const client = await getClient();
-  const { data } = await client.get(url);
-  return data;
+  console.log('Calling Jenkins API...');
+  const { data } = await client.get(`${jobPath}/api/json`, {
+    params: { tree: 'lastBuild[number]' },
+  });
+
+  const latestBuildNumber = Number(data?.lastBuild?.number);
+  console.log('Latest build:', latestBuildNumber);
+
+  if (!Number.isFinite(latestBuildNumber) || latestBuildNumber <= 0) {
+    throw new Error('Latest Jenkins build number not found');
+  }
+
+  const { data: latestBuildJson } = await client.get(`${jobPath}/${latestBuildNumber}/api/json`);
+  return latestBuildJson;
 }
 
 async function fetchRecentBuildsJson(limit = 50) {
@@ -438,7 +498,7 @@ export async function updateCacheOnce() {
         }
       }
     } catch (e) {
-      // resilient
+      console.error('[updateCacheOnce] Jenkins build sync failed:', e?.message || e);
     }
   }
 
@@ -455,8 +515,20 @@ export async function updateCacheOnce() {
 }
 
 export function initJenkinsPolling() {
-  // Polling is request-scoped in this service.
-  return false;
+  if (pollingTimer) {
+    return true;
+  }
+
+  // Start a lightweight interval that pulls Jenkins every 5 seconds.
+  // Errors are logged but do not crash the process.
+  pollingTimer = setInterval(() => {
+    updateCacheOnce().catch((err) => {
+      console.error('[JenkinsPolling] updateCacheOnce failed:', err?.message || err);
+    });
+  }, POLLING_INTERVAL_MS);
+
+  console.log('[JenkinsPolling] Started with interval', POLLING_INTERVAL_MS, 'ms');
+  return true;
 }
 
 export async function getLatestCached() {

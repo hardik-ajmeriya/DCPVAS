@@ -13,7 +13,16 @@ export function applySecurity(app) {
     crossOriginResourcePolicy: false,
   }));
 
-  app.use(compression());
+  // Skip compression for Server-Sent Events so event frames are not buffered
+  const shouldCompress = (req, res) => {
+    const accept = req.headers?.accept || '';
+    if (typeof accept === 'string' && accept.includes('text/event-stream')) {
+      return false;
+    }
+    return compression.filter(req, res);
+  };
+
+  app.use(compression({ filter: shouldCompress }));
 
   // Basic rate limiter for all API routes
   const configuredMax = Number(process.env.API_RATE_LIMIT_MAX);

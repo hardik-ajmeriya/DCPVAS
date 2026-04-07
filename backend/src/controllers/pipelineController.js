@@ -1,4 +1,4 @@
-import { getLatestPipelineStages, getPipelineStagesForBuild, isLiveEnabled, getLatestPipelineFlowWithSync } from "../services/jenkinsService.js";
+import { getLatestPipelineStages, getPipelineStagesForBuild, isLiveEnabled, getLatestPipelineFlowWithSync, updateCacheOnce } from "../services/jenkinsService.js";
 import {
   getLatestWithAnalysis,
   getHistory,
@@ -22,16 +22,90 @@ const ANALYSIS_STAGE = {
   SKIPPED: 6,
 };
 
+function setNoCacheHeaders(res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+}
+
+async function buildPipelineSnapshot() {
+  const combined = await getLatestWithAnalysis();
+
+  if (!combined) {
+    return {
+      buildNumber: null,
+      status: 'pending',
+      stages: [],
+      aiStatus: {
+        fetchingLogs: false,
+        filteringErrors: false,
+        analyzing: false,
+        storing: false,
+        completed: false,
+      },
+    };
+  }
+
+  const { raw, ai } = combined;
+  const building = !!raw?.building || raw?.buildStatus === 'BUILDING';
+  const status = raw?.status || (building ? 'RUNNING' : 'UNKNOWN');
+
+  const rawStages = Array.isArray(raw?.stages) ? raw.stages : [];
+  const stages = rawStages.map((s) => ({
+    name: s?.name || 'Unnamed Stage',
+    status: s?.status || 'PENDING',
+  }));
+
+  const rawStageValue = String(ai?.stage || ai?.analysisStatus || raw?.analysisStatus || '').toUpperCase();
+  const stageKey = ANALYSIS_STAGE[rawStageValue] ? rawStageValue : (building ? 'FETCH_LOGS' : 'COMPLETED');
+  const currentIndex = ANALYSIS_STAGE[stageKey];
+
+  const aiStatus = {
+    fetchingLogs: currentIndex >= ANALYSIS_STAGE.FETCH_LOGS,
+    filteringErrors: currentIndex >= ANALYSIS_STAGE.FILTER_ERRORS,
+    analyzing: currentIndex >= ANALYSIS_STAGE.AI_ANALYSIS,
+    storing: currentIndex >= ANALYSIS_STAGE.STORE_RESULTS,
+    completed: currentIndex >= ANALYSIS_STAGE.COMPLETED || stageKey === 'SKIPPED',
+  };
+
+  return {
+    buildNumber: raw?.buildNumber ?? null,
+    status,
+    stages,
+    aiStatus,
+    building,
+    jobName: raw?.jobName || null,
+    executedAt: raw?.executedAt || raw?.createdAt || null,
+  };
+}
+
 export async function getLatestPipeline(req, res) {
   try {
+    console.log('Pipeline API called');
+    setNoCacheHeaders(res);
+    let syncError = null;
+    try {
+      await updateCacheOnce();
+    } catch (syncErr) {
+      syncError = syncErr;
+      const msg = String(syncErr?.message || '').toLowerCase();
+      if (syncErr?.code === 'JENKINS_INVALID_CREDENTIALS') {
+        console.error('[getLatestPipeline] Jenkins credentials are invalid. User must reconfigure.');
+      } else if (!msg.includes('jenkins not configured')) {
+        console.warn('[getLatestPipeline] Jenkins sync failed, falling back to Mongo snapshot:', syncErr?.message || syncErr);
+      }
+    }
+
     console.log("Fetching latest pipeline run from Mongo (PipelineRawLog + AI)");
     const combined = await getLatestWithAnalysis();
 
     if (!combined) {
-      return res.json({
-        success: true,
+      const hasInvalidCreds = syncError?.code === 'JENKINS_INVALID_CREDENTIALS';
+      return res.status(hasInvalidCreds ? 500 : 200).json({
+        success: !hasInvalidCreds,
         data: null,
-        message: "No pipeline executions yet",
+        message: hasInvalidCreds ? 'Invalid stored credentials' : 'No pipeline executions yet',
       });
     }
 
@@ -69,6 +143,15 @@ export async function getLatestPipeline(req, res) {
           finalResult: ai.finalResult ?? null,
         }
       : base;
+
+    const hasInvalidCreds = syncError?.code === 'JENKINS_INVALID_CREDENTIALS';
+    if (hasInvalidCreds) {
+      return res.status(500).json({
+        success: false,
+        message: 'Invalid stored credentials',
+        data: withAi,
+      });
+    }
 
     return res.json({ success: true, data: withAi });
   } catch (e) {
@@ -174,6 +257,7 @@ export async function getPipelineStages(req, res) {
 
 export async function getLatestPipelineFlow(req, res) {
   try {
+    setNoCacheHeaders(res);
     // Fetch latest build from Jenkins, persist it into Mongo, trigger AI if needed,
     // and return a normalized flow object for the frontend.
     const flow = await getLatestPipelineFlowWithSync();
@@ -197,26 +281,35 @@ export async function getLatestPipelineFlow(req, res) {
 }
 
 export async function streamPipelineStages(req, res) {
-  // Server-Sent Events stream for live pipeline stage updates
+  // Server-Sent Events stream for live pipeline state updates (stages + AI analysis)
+  res.status(200);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  // Disable proxy buffering for SSE when supported (e.g. Nginx)
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
+
+  // Establish the stream with an initial comment so the client
+  // considers the connection open even before the first data event.
+  try {
+    res.write(': connected\n\n');
+  } catch (_) {
+    // If we cannot write, just let the close handler clean up.
+  }
 
   let active = true;
   const intervalMs = 3000;
   let poller = null;
+  let lastSignature = null;
 
   const pushEvent = async () => {
     try {
-      const flow = await getLatestPipelineStages();
-      res.write(`data: ${JSON.stringify(flow)}\n\n`);
-
-      const completed = !flow.building && flow.status !== 'running';
-      if (completed) {
-        clearInterval(poller);
-        active = false;
-        res.end();
+      const snapshot = await buildPipelineSnapshot();
+      const signature = JSON.stringify(snapshot);
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        res.write(`data: ${signature}\n\n`);
       }
     } catch (err) {
       console.error('[streamPipelineStages] failed to push update:', err?.message || err);

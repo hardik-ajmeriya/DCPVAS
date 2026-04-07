@@ -1,8 +1,8 @@
 import crypto from "crypto";
 
 const ALGORITHM = "aes-256-cbc";
-// Derive a 32-byte key from SECRET_KEY; fallback for dev to avoid crashes
-const SECRET = process.env.SECRET_KEY || "dcpvas-dev-secret";
+// Derive a 32-byte key from a single secret; prefer ENCRYPTION_KEY but allow SECRET_KEY for backward compatibility.
+const SECRET = process.env.ENCRYPTION_KEY || process.env.SECRET_KEY || "dcpvas-dev-secret";
 const KEY = crypto.createHash("sha256").update(String(SECRET)).digest();
 const IV = Buffer.alloc(16, 0);
 

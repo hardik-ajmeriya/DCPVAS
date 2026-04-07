@@ -13,13 +13,11 @@ export function useLatestBuildQuery() {
   return useQuery({
     queryKey: qk.latest,
     queryFn: getLatestPipeline,
-    staleTime: 10000,
+    staleTime: 0,
     refetchOnWindowFocus: false,
     retry: false,
-    refetchInterval: (data) => {
-      const building = !!data?.building || data?.buildStatus === 'BUILDING';
-      return building ? 10000 : false;
-    },
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
   });
 }
 

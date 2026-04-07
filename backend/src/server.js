@@ -1,7 +1,7 @@
 import app from './app.js';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { setSocketIO as setJenkinsIO } from './services/jenkinsService.js';
+import { setSocketIO as setJenkinsIO, initJenkinsPolling } from './services/jenkinsService.js';
 import { setSocketIO as setLogStreamIO, watchBuildLogs, isWatching } from './services/logStreamingService.js';
 import { allowedOrigins } from './config/cors.js';
 import { connectMongo } from './config/mongo.js';
@@ -96,6 +96,13 @@ async function startServer() {
       hasUser: !!config.jenkins.user,
       hasToken: !!config.jenkins.token,
     });
+
+    try {
+      const enabled = initJenkinsPolling();
+      console.log('[JenkinsPolling] Enabled:', enabled);
+    } catch (pollErr) {
+      console.warn('[JenkinsPolling] Failed to start polling:', pollErr?.message || pollErr);
+    }
   } catch (err) {
     console.error('Fatal startup error', err?.message || err);
     process.exit(1);
