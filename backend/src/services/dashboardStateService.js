@@ -1,7 +1,6 @@
-import { getLatestPipelineRun } from './pipelineService.js';
 import { getHistory } from './pipelineDataService.js';
 import { computeDashboardMetrics } from './dashboardMetricsService.js';
-import { getLatestPipelineStages } from './jenkinsService.js';
+import { getLatestWithAnalysis } from './pipelineDataService.js';
 import PipelineAIAnalysis from '../models/PipelineAIAnalysis.js';
 
 const ANALYSIS_STAGE = {
@@ -41,9 +40,9 @@ function deriveAiStatus(doc, jobName, buildNumber) {
 
 export async function buildDashboardState(eventMeta) {
   try {
-    const [latestRun, history, metrics] = await Promise.all([
-      getLatestPipelineRun().catch((e) => {
-        console.error('[dashboardState] getLatestPipelineRun failed:', e?.message || e);
+    const [latestCombined, history, metrics] = await Promise.all([
+      getLatestWithAnalysis().catch((e) => {
+        console.error('[dashboardState] getLatestWithAnalysis failed:', e?.message || e);
         return null;
       }),
       getHistory(50).catch((e) => {
@@ -62,22 +61,32 @@ export async function buildDashboardState(eventMeta) {
       }),
     ]);
 
-    let stages = [];
-    try {
-      const flow = await getLatestPipelineStages();
-      stages = Array.isArray(flow?.stages) ? flow.stages : [];
-    } catch (err) {
-      const msg = err?.message || String(err || '');
-      if (msg !== 'Jenkins not configured') {
-        console.error('[dashboardState] getLatestPipelineStages failed:', msg);
-      }
-      stages = [];
-    }
+    const raw = latestCombined?.raw || null;
+    const latestAiDoc = latestCombined?.ai || null;
+    const stages = Array.isArray(raw?.stages) ? raw.stages : [];
+
+    const latestRun = raw
+      ? {
+          jobName: raw.jobName || null,
+          buildNumber: raw.buildNumber ?? null,
+          status: raw.status || (raw.buildStatus === 'BUILDING' ? 'RUNNING' : 'UNKNOWN'),
+          buildStatus: raw.buildStatus || (raw.building ? 'BUILDING' : 'COMPLETED'),
+          building: !!raw.building,
+          duration: Number.isFinite(raw.durationSeconds) ? raw.durationSeconds * 1000 : null,
+          executedAt: raw.executedAt || raw.createdAt || null,
+          branch: raw.branch || null,
+          commit: raw.commit || null,
+          progress: (latestAiDoc?.stage || raw.analysisStatus || '').toLowerCase() || null,
+          analysisStatus: latestAiDoc?.analysisStatus || raw.analysisStatus || null,
+          stages,
+          aiAnalysis: latestAiDoc || null,
+        }
+      : null;
 
     let aiStatus = null;
     let aiAnalysis = null;
     if (latestRun?.jobName && latestRun?.buildNumber != null) {
-      const aiDoc = await PipelineAIAnalysis.findOne({
+      const aiDoc = latestAiDoc || (await PipelineAIAnalysis.findOne({
         jobName: latestRun.jobName,
         buildNumber: latestRun.buildNumber,
       })
@@ -86,7 +95,7 @@ export async function buildDashboardState(eventMeta) {
         .catch((e) => {
           console.error('[dashboardState] PipelineAIAnalysis lookup failed:', e?.message || e);
           return null;
-        });
+        }));
       aiStatus = deriveAiStatus(aiDoc, latestRun.jobName, latestRun.buildNumber);
       // Expose full AI document on the dashboard state so SSE consumers and
       // REST snapshots can bind directly to aiAnalysis without changing the

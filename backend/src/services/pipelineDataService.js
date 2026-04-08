@@ -2,8 +2,19 @@ import PipelineRawLog from '../models/PipelineRawLog.js';
 import PipelineAIAnalysis from '../models/PipelineAIAnalysis.js';
 import { decodeJenkinsConsole } from './logDecoder.js';
 
+async function resolveRawForBuild(buildNumber, options = {}) {
+  const query = { buildNumber };
+  if (options?.jobName) {
+    query.jobName = options.jobName;
+  }
+
+  return PipelineRawLog.findOne(query)
+    .sort({ executedAt: -1, updatedAt: -1 })
+    .lean();
+}
+
 export async function getLatestWithAnalysis() {
-  const raw = await PipelineRawLog.findOne().sort({ executedAt: -1 }).lean();
+  const raw = await PipelineRawLog.findOne().sort({ executedAt: -1, updatedAt: -1, buildNumber: -1 }).lean();
   if (!raw) return null;
   const ai = await PipelineAIAnalysis.findOne({ jobName: raw.jobName, buildNumber: raw.buildNumber })
     .sort({ updatedAt: -1 })
@@ -93,8 +104,8 @@ export async function getHistory(limit = 50) {
   });
 }
 
-export async function getBuildWithAnalysis(buildNumber) {
-  const raw = await PipelineRawLog.findOne({ buildNumber }).lean();
+export async function getBuildWithAnalysis(buildNumber, options = {}) {
+  const raw = await resolveRawForBuild(buildNumber, options);
   if (!raw) return null;
   const ai = await PipelineAIAnalysis.findOne({ jobName: raw.jobName, buildNumber })
     .sort({ generatedAt: -1 })
@@ -102,8 +113,8 @@ export async function getBuildWithAnalysis(buildNumber) {
   return { raw, ai };
 }
 
-export async function getRawLogs(buildNumber) {
-  const raw = await PipelineRawLog.findOne({ buildNumber }).lean();
+export async function getRawLogs(buildNumber, options = {}) {
+  const raw = await resolveRawForBuild(buildNumber, options);
   if (!raw) return null;
   const fullLogs = raw.logs || raw.rawLogs || '';
   // For detection only, compute a cleaned version; return original unfiltered logs to UI
@@ -157,7 +168,7 @@ export default {
 };
 
 export async function reanalyzeBuild(buildNumber, options = {}) {
-  const raw = await PipelineRawLog.findOne({ buildNumber }).lean();
+  const raw = await resolveRawForBuild(buildNumber, options);
   if (!raw) return null;
   // Re-fetch full document for _id
   const rawDoc = await PipelineRawLog.findById(raw._id);

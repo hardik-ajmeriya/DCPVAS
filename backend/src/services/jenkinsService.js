@@ -39,6 +39,12 @@ let lastBroadcast = { buildNumber: null, status: null };
 let pollingTimer = null;
 const POLLING_INTERVAL_MS = 5000;
 
+async function findLatestJenkinsSettings() {
+  let settings = await JenkinsSettings.findOne({ type: 'jenkins' }).sort({ updatedAt: -1, createdAt: -1 });
+  if (settings) return settings;
+  return JenkinsSettings.findOne({}).sort({ updatedAt: -1, createdAt: -1 });
+}
+
 export async function getJenkinsConfig() {
   const [total, typed] = await Promise.all([
     JenkinsSettings.countDocuments({}).catch((e) => {
@@ -56,11 +62,7 @@ export async function getJenkinsConfig() {
     jenkinsTypedDocuments: typed,
   });
 
-  let settings = await JenkinsSettings.findOne({ type: 'jenkins' });
-  if (!settings) {
-    // Backwards compatibility for records created before `type` field existed
-    settings = await JenkinsSettings.findOne();
-  }
+  const settings = await findLatestJenkinsSettings();
 
   if (!settings) {
     console.error('[JenkinsSettings] getJenkinsConfig: no Jenkins config found in database');
@@ -360,34 +362,36 @@ function parseStagesFromLogs(logText) {
 export async function updateCacheOnce() {
   const previousBuildNumber = lastKnownBuildNumber;
 
-  // Validate DB-backed Jenkins config
-  const cfg = await getJenkinsConfig();
-  console.log('Fetching Jenkins job:', cfg.jobName);
-  const latestJson = await fetchLatestBuildJson();
-  const normalized = normalizeBuild(latestJson);
-  if (normalized?.buildNumber != null) {
-    console.log('Build number:', normalized.buildNumber);
-    // If build number increased, emit build:new for frontend hard reset
-    if (typeof previousBuildNumber === 'number' && normalized.buildNumber > previousBuildNumber) {
-      try {
-        io?.emit('build:new', {
-          jobName: cfg.jobName || 'unknown-job',
-          buildNumber: normalized.buildNumber,
-          status: 'BUILDING',
-        });
-      } catch {}
-    }
-  }
-
-  // Build state guard & DB source of truth
-  const client = await getClient();
-  const jobPath = await buildJobPath();
-  const buildNumber = normalized?.buildNumber;
+  let normalized = null;
   let logs = cache.logs;
   let stages = cache.stages;
 
-  if (buildNumber != null) {
-    try {
+  try {
+    // Validate DB-backed Jenkins config
+    const cfg = await getJenkinsConfig();
+    console.log('Fetching Jenkins job:', cfg.jobName);
+    const latestJson = await fetchLatestBuildJson();
+    normalized = normalizeBuild(latestJson);
+    if (normalized?.buildNumber != null) {
+      console.log('Build number:', normalized.buildNumber);
+      // If build number increased, emit build:new for frontend hard reset
+      if (typeof previousBuildNumber === 'number' && normalized.buildNumber > previousBuildNumber) {
+        try {
+          io?.emit('build:new', {
+            jobName: cfg.jobName || 'unknown-job',
+            buildNumber: normalized.buildNumber,
+            status: 'BUILDING',
+          });
+        } catch {}
+      }
+    }
+
+    // Build state guard & DB source of truth
+    const client = await getClient();
+    const jobPath = await buildJobPath();
+    const buildNumber = normalized?.buildNumber;
+
+    if (buildNumber != null) {
       const statusResp = await client.get(`${jobPath}/${buildNumber}/api/json`);
       const building = !!statusResp?.data?.building;
       const result = statusResp?.data?.result || null; // SUCCESS/FAILURE/ABORTED/null
@@ -546,8 +550,27 @@ export async function updateCacheOnce() {
           }
         }
       }
-    } catch (e) {
-      console.error('[updateCacheOnce] Jenkins build sync failed:', e?.message || e);
+    }
+  } catch (e) {
+    // Jenkins may be down, not configured, or credentials may be invalid.
+    // Fall back to the latest persisted Mongo snapshot so consumers keep working.
+    console.error('[updateCacheOnce] Jenkins sync failed, using Mongo snapshot fallback:', e?.message || e);
+
+    const fallback = await getLatestWithAnalysis().catch(() => null);
+    const raw = fallback?.raw;
+    if (raw) {
+      const building = !!raw?.building || raw?.buildStatus === 'BUILDING';
+      const status = raw?.status || (building ? 'RUNNING' : 'UNKNOWN');
+      stages = Array.isArray(raw?.stages) ? raw.stages : [];
+      logs = raw?.logs || raw?.rawLogs || logs || '';
+      normalized = {
+        id: `mongo-${raw.buildNumber}`,
+        buildNumber: raw.buildNumber,
+        status: status === 'FAILURE' ? 'FAILED' : status,
+        startedAt: raw?.executedAt ? new Date(raw.executedAt).toISOString() : null,
+        durationMs: Number.isFinite(raw?.durationSeconds) ? raw.durationSeconds * 1000 : 0,
+        stages,
+      };
     }
   }
 
@@ -682,7 +705,11 @@ export async function getRecentBuilds(limit = 50) {
 // Fetch latest build from Jenkins (via updateCacheOnce), ensure it is synced into Mongo,
 // then derive a normalized flow object purely from Mongo-backed state.
 export async function getLatestPipelineFlowWithSync() {
-  await updateCacheOnce();
+  try {
+    await updateCacheOnce();
+  } catch (err) {
+    console.warn('[getLatestPipelineFlowWithSync] updateCacheOnce failed, continuing with Mongo snapshot:', err?.message || err);
+  }
 
   const combined = await getLatestWithAnalysis();
   if (!combined) {

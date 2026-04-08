@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   Check,
   Circle,
@@ -99,17 +99,35 @@ const stageVariants = {
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } },
 };
 
-export default function PipelineFlow({ stages, buildNumber, status, durationMs, jobName }) {
+function PipelineFlow({ data = null, stages, buildNumber, status, durationMs, jobName }) {
+  const source = data && typeof data === 'object' ? data : null;
+  const resolvedStages = Array.isArray(source?.stages) ? source.stages : (stages || []);
+  const resolvedBuildNumber = source?.buildNumber ?? buildNumber;
+  const resolvedStatus = source?.status ?? status;
+  const resolvedDurationMs = source?.durationMs ?? source?.duration ?? durationMs;
+  const resolvedJobName = source?.jobName ?? jobName;
+
+  if (!source && !stages && !buildNumber && !status) {
+    return (
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/70 backdrop-blur-xl shadow-2xl p-5">
+        <Skeleton className="h-5 w-36 mb-4" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+    );
+  }
+
   const normalizedStages = useMemo(
-    () => (stages || []).map((stage) => ({
+    () => (resolvedStages || []).map((stage) => ({
       name: stage?.name || 'Stage',
       status: normalizeStatus(stage?.status),
     })),
-    [stages],
+    [resolvedStages],
   );
 
-  const overallStyle = STATUS_META[normalizeStatus(status)] || STATUS_META.pending;
-  const jenkinsUrl = buildNumber && jobName ? `${JENKINS_BASE}/job/${encodeURIComponent(jobName)}/${buildNumber}/` : null;
+  const overallNormalized = normalizeStatus(resolvedStatus);
+  const overallStyle = STATUS_META[overallNormalized] || STATUS_META.pending;
+  const isRunningOverall = overallNormalized === 'running';
+  const jenkinsUrl = resolvedBuildNumber && resolvedJobName ? `${JENKINS_BASE}/job/${encodeURIComponent(resolvedJobName)}/${resolvedBuildNumber}/` : null;
   const progressRatio = computeProgressRatio(normalizedStages);
 
   const activeIndex = useMemo(() => {
@@ -123,7 +141,11 @@ export default function PipelineFlow({ stages, buildNumber, status, durationMs, 
   }, [normalizedStages]);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/70 backdrop-blur-xl shadow-2xl">
+    <div className={`relative overflow-hidden rounded-2xl border bg-white dark:bg-slate-900/70 backdrop-blur-xl shadow-2xl transition-all duration-300 ${
+      isRunningOverall
+        ? 'border-amber-300/80 dark:border-amber-300/40 ring-2 ring-amber-300/40 shadow-amber-300/25 animate-pulse'
+        : 'border-gray-200 dark:border-white/5'
+    }`}>
       <div className="absolute inset-0 dark:bg-gradient-to-br dark:from-indigo-500/10 dark:via-slate-800/30 dark:to-emerald-500/10" aria-hidden />
       <div className="relative p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
@@ -136,11 +158,16 @@ export default function PipelineFlow({ stages, buildNumber, status, durationMs, 
               >
                 {overallStyle.label}
               </motion.span>
+              {isRunningOverall && (
+                <span className="text-[11px] font-semibold text-amber-500 dark:text-amber-200 animate-pulse">
+                  Running...
+                </span>
+              )}
             </div>
             <div className="text-xs text-gray-600 dark:text-slate-400 flex items-center gap-2">
-              <span>{buildNumber ? `Build #${buildNumber}` : 'Latest build'}</span>
+              <span>{resolvedBuildNumber ? `Build #${resolvedBuildNumber}` : 'Latest build'}</span>
               <span className="text-gray-400 dark:text-slate-600">•</span>
-              <span className="text-gray-700 dark:text-slate-300">Duration {formatDuration(durationMs)}</span>
+              <span className="text-gray-700 dark:text-slate-300">Duration {formatDuration(resolvedDurationMs)}</span>
             </div>
           </div>
           {jenkinsUrl && (
@@ -155,7 +182,7 @@ export default function PipelineFlow({ stages, buildNumber, status, durationMs, 
           )}
         </div>
 
-        {!stages?.length && (
+        {!resolvedStages?.length && (
           <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-slate-300/80">
             <div className="w-3 h-3 rounded-full bg-gray-400 dark:bg-slate-500 animate-pulse" />
             <span>Loading latest pipeline flow...</span>
@@ -296,3 +323,5 @@ export default function PipelineFlow({ stages, buildNumber, status, durationMs, 
     </div>
   );
 }
+
+export default memo(PipelineFlow);

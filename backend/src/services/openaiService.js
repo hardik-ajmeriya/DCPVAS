@@ -506,6 +506,14 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   aiDoc.technicalRecommendation = json.technicalRecommendation ?? null;
   aiDoc.confidenceScore = typeof json.confidenceScore === 'number' ? json.confidenceScore : null;
   await aiDoc.save();
+  try {
+    broadcastEvent({
+      type: 'analysis_saved',
+      jobName: rawDoc.jobName,
+      buildNumber: rawDoc.buildNumber,
+      status: 'stored',
+    });
+  } catch {}
 
   // READY
   console.log(`[AI] Step → COMPLETED (build #${rawDoc.buildNumber})`);

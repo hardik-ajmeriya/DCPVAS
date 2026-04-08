@@ -5,15 +5,22 @@
 import { buildDashboardState } from './dashboardStateService.js';
 
 const clients = new Set();
-const HEARTBEAT_MS = 25000;
+const HEARTBEAT_MS = 10000;
+let lastKnownDashboardState = null;
 
 async function pushStateToClient(client, eventMeta) {
   try {
     const state = await buildDashboardState(eventMeta);
+    lastKnownDashboardState = state;
     const payload = `data: ${JSON.stringify(state)}\n\n`;
     client.res.write(payload);
   } catch (err) {
     console.error('[SSE] Failed to push dashboard state:', err?.message || err);
+    if (lastKnownDashboardState) {
+      try {
+        client.res.write(`data: ${JSON.stringify(lastKnownDashboardState)}\n\n`);
+      } catch {}
+    }
   }
 }
 
@@ -23,6 +30,7 @@ export function registerClient(req, res) {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
+  res.write('retry: 3000\n\n');
 
   // Initial heartbeat so proxies keep the connection alive
   res.write(`event: ping\n` + `data: ${JSON.stringify({ ts: Date.now() })}\n\n`);
@@ -58,6 +66,7 @@ export function broadcastEvent(event) {
   void (async () => {
     try {
       const state = await buildDashboardState(event);
+      lastKnownDashboardState = state;
       const payload = `data: ${JSON.stringify(state)}\n\n`;
       for (const client of Array.from(clients)) {
         try {
@@ -68,6 +77,16 @@ export function broadcastEvent(event) {
       }
     } catch (err) {
       console.error('[SSE] Failed to broadcast dashboard state:', err?.message || err);
+      if (lastKnownDashboardState) {
+        const payload = `data: ${JSON.stringify(lastKnownDashboardState)}\n\n`;
+        for (const client of Array.from(clients)) {
+          try {
+            client.res.write(payload);
+          } catch {
+            clients.delete(client);
+          }
+        }
+      }
     }
   })();
 }

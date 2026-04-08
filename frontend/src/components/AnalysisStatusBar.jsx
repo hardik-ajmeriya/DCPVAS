@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { CheckCircle, CloudDownload, Filter, Brain, Database } from 'lucide-react';
 
 const STEPS = [
@@ -17,11 +18,22 @@ const ORDER = {
   skipped: 5,
 };
 
-export default function AnalysisStatusBar({ stage = 'fetch_logs', skipped = false, className = '' }) {
-  const normalizedStage = stage?.toLowerCase?.() || 'fetch_logs';
+function AnalysisStatusBar({ data = null, stage = 'fetch_logs', skipped = false, className = '' }) {
+  const source = data && typeof data === 'object' ? data : null;
+  const derivedStage = source?.aiStatus?.stage ?? source?.stage ?? stage;
+  const derivedSkipped = source?.aiStatus?.skipped ?? source?.skipped ?? skipped;
+  const normalizedStage = derivedStage?.toLowerCase?.() || 'fetch_logs';
   const current = ORDER[normalizedStage] || 1;
-  const isSkipped = skipped || normalizedStage === 'skipped';
+  const isSkipped = Boolean(derivedSkipped) || normalizedStage === 'skipped';
   const isTerminal = normalizedStage === 'completed' || isSkipped;
+
+  if (!source && !stage) {
+    return (
+      <div className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 shadow-lg ${className}`}>
+        <div className="h-4 w-40 rounded bg-gray-200 dark:bg-slate-700 animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 shadow-lg ${className}`}>
@@ -56,3 +68,5 @@ export default function AnalysisStatusBar({ stage = 'fetch_logs', skipped = fals
     </div>
   );
 }
+
+export default memo(AnalysisStatusBar);

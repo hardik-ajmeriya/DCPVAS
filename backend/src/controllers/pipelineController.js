@@ -12,6 +12,8 @@ import { analyzeCleanedLogsStrict } from "../services/openaiService.js";
 import { cleanJenkinsLogs } from "../services/logSanitizer.js";
 import { decodeJenkinsConsole } from "../services/logDecoder.js";
 import PipelineAIAnalysis from "../models/PipelineAIAnalysis.js";
+import PipelineRawLog from "../models/PipelineRawLog.js";
+import { buildDashboardState } from "../services/dashboardStateService.js";
 
 const ANALYSIS_STAGE = {
   FETCH_LOGS: 1,
@@ -29,55 +31,20 @@ function setNoCacheHeaders(res) {
   res.setHeader('Surrogate-Control', 'no-store');
 }
 
-async function buildPipelineSnapshot() {
-  const combined = await getLatestWithAnalysis();
+let lastPipelineStreamState = null;
 
-  if (!combined) {
-    return {
-      buildNumber: null,
-      status: 'pending',
-      stages: [],
-      aiStatus: {
-        fetchingLogs: false,
-        filteringErrors: false,
-        analyzing: false,
-        storing: false,
-        completed: false,
-      },
-    };
-  }
-
-  const { raw, ai } = combined;
-  const building = !!raw?.building || raw?.buildStatus === 'BUILDING';
-  const status = raw?.status || (building ? 'RUNNING' : 'UNKNOWN');
-
-  const rawStages = Array.isArray(raw?.stages) ? raw.stages : [];
-  const stages = rawStages.map((s) => ({
-    name: s?.name || 'Unnamed Stage',
-    status: s?.status || 'PENDING',
-  }));
-
-  const rawStageValue = String(ai?.stage || ai?.analysisStatus || raw?.analysisStatus || '').toUpperCase();
-  const stageKey = ANALYSIS_STAGE[rawStageValue] ? rawStageValue : (building ? 'FETCH_LOGS' : 'COMPLETED');
-  const currentIndex = ANALYSIS_STAGE[stageKey];
-
-  const aiStatus = {
-    fetchingLogs: currentIndex >= ANALYSIS_STAGE.FETCH_LOGS,
-    filteringErrors: currentIndex >= ANALYSIS_STAGE.FILTER_ERRORS,
-    analyzing: currentIndex >= ANALYSIS_STAGE.AI_ANALYSIS,
-    storing: currentIndex >= ANALYSIS_STAGE.STORE_RESULTS,
-    completed: currentIndex >= ANALYSIS_STAGE.COMPLETED || stageKey === 'SKIPPED',
-  };
-
+function normalizePipelineStreamState(state) {
   return {
-    buildNumber: raw?.buildNumber ?? null,
-    status,
-    stages,
-    aiStatus,
-    building,
-    jobName: raw?.jobName || null,
-    executedAt: raw?.executedAt || raw?.createdAt || null,
+    latestBuild: state?.latestBuild || null,
+    pipelines: Array.isArray(state?.pipelines) ? state.pipelines : [],
+    failures: Array.isArray(state?.failures) ? state.failures : [],
+    aiStatus: state?.aiStatus || null,
   };
+}
+
+async function buildPipelineStreamState() {
+  const state = await buildDashboardState({ type: 'pipeline_stream' });
+  return normalizePipelineStreamState(state);
 }
 
 export async function getLatestPipeline(req, res) {
@@ -102,7 +69,7 @@ export async function getLatestPipeline(req, res) {
 
     if (!combined) {
       const hasInvalidCreds = syncError?.code === 'JENKINS_INVALID_CREDENTIALS';
-      return res.status(hasInvalidCreds ? 500 : 200).json({
+      return res.status(200).json({
         success: !hasInvalidCreds,
         data: null,
         message: hasInvalidCreds ? 'Invalid stored credentials' : 'No pipeline executions yet',
@@ -167,9 +134,10 @@ export async function getLatestPipeline(req, res) {
 
     const hasInvalidCreds = syncError?.code === 'JENKINS_INVALID_CREDENTIALS';
     if (hasInvalidCreds) {
-      return res.status(500).json({
-        success: false,
-        message: 'Invalid stored credentials',
+      return res.json({
+        success: true,
+        warning: 'Invalid stored credentials; serving latest Mongo snapshot',
+        fallback: true,
         data: withAi,
       });
     }
@@ -236,10 +204,11 @@ export async function getPipelineHistory(req, res) {
 export async function getPipelineLogs(req, res) {
   try {
     const { number } = req.params;
+    const jobName = typeof req.query?.jobName === 'string' ? req.query.jobName.trim() : '';
     if (!number || Number.isNaN(Number(number))) {
       return res.status(400).json({ error: "Invalid build number" });
     }
-    const raw = await getRawLogs(Number(number));
+    const raw = await getRawLogs(Number(number), { jobName: jobName || undefined });
     if (!raw) {
       return res.json({ rawLogs: "", consoleUrl: null, executedAt: null });
     }
@@ -305,61 +274,98 @@ export async function getLatestPipelineFlow(req, res) {
 }
 
 export async function streamPipelineStages(req, res) {
-  // Server-Sent Events stream for live pipeline state updates (stages + AI analysis)
+  // Server-Sent Events stream for live pipeline state updates.
+  // Payload shape is stable for frontend recovery:
+  // { latestBuild, pipelines, failures, aiStatus }
   res.status(200);
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Connection', 'keep-alive');
   // Disable proxy buffering for SSE when supported (e.g. Nginx)
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  // Establish the stream with an initial comment so the client
-  // considers the connection open even before the first data event.
-  try {
-    res.write(': connected\n\n');
-  } catch (_) {
-    // If we cannot write, just let the close handler clean up.
-  }
-
   let active = true;
-  const intervalMs = 3000;
-  let poller = null;
   let lastSignature = null;
 
-  const pushEvent = async () => {
+  const safeWrite = (chunk) => {
+    if (!active) return false;
     try {
-      const snapshot = await buildPipelineSnapshot();
-      const signature = JSON.stringify(snapshot);
-      if (signature !== lastSignature) {
-        lastSignature = signature;
-        res.write(`data: ${signature}\n\n`);
-      }
+      res.write(chunk);
+      return true;
     } catch (err) {
-      console.error('[streamPipelineStages] failed to push update:', err?.message || err);
-      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed to fetch pipeline stages' })}\n\n`);
+      active = false;
+      return false;
     }
   };
 
-  // Kick off immediately, then poll
-  pushEvent();
-  poller = setInterval(pushEvent, intervalMs);
+  const pushState = async (force = false) => {
+    if (!active) return;
+    try {
+      const snapshot = await buildPipelineStreamState();
+      const normalized = normalizePipelineStreamState(snapshot);
+      const hasContent = !!normalized.latestBuild || normalized.pipelines.length > 0 || normalized.failures.length > 0;
+      if (hasContent) {
+        lastPipelineStreamState = normalized;
+      }
 
-  req.on('close', () => {
+      const payload = JSON.stringify(hasContent ? normalized : (lastPipelineStreamState || normalized));
+      if (force || payload !== lastSignature) {
+        lastSignature = payload;
+        safeWrite(`data: ${payload}\n\n`);
+      }
+    } catch (err) {
+      console.error('[streamPipelineStages] failed to build snapshot:', err?.message || err);
+      if (lastPipelineStreamState) {
+        const fallback = JSON.stringify(lastPipelineStreamState);
+        if (force || fallback !== lastSignature) {
+          lastSignature = fallback;
+          safeWrite(`data: ${fallback}\n\n`);
+        }
+      } else {
+        safeWrite(`event: error\ndata: ${JSON.stringify({ error: 'Failed to fetch pipeline snapshot' })}\n\n`);
+      }
+    }
+  };
+
+  // Client-side reconnect hint
+  safeWrite('retry: 3000\n\n');
+  safeWrite(': connected\n\n');
+
+  // Immediate state push on connect, then periodic refresh and heartbeat.
+  void pushState(true);
+  const poller = setInterval(() => {
+    void pushState(false);
+  }, 3000);
+
+  const heartbeat = setInterval(() => {
+    safeWrite(`event: ping\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+  }, 10000);
+
+  const cleanup = () => {
     if (!active) return;
     active = false;
     clearInterval(poller);
-    res.end();
+    clearInterval(heartbeat);
+    try {
+      res.end();
+    } catch {}
+  };
+
+  req.on('close', () => {
+    cleanup();
   });
+  res.on('close', cleanup);
 }
 
 export async function getPipelineBuild(req, res) {
   const { number } = req.params;
+  const jobName = typeof req.query?.jobName === 'string' ? req.query.jobName.trim() : '';
   if (!number || Number.isNaN(Number(number))) {
     return res.status(400).json({ error: "Invalid build number" });
   }
   try {
-    const combined = await getBuildWithAnalysis(Number(number));
+    const combined = await getBuildWithAnalysis(Number(number), { jobName: jobName || undefined });
     if (!combined) return res.status(404).json({ error: "Build not found" });
     const { raw, ai } = combined;
     const isSuccess = raw.status === 'SUCCESS';
@@ -461,16 +467,27 @@ export async function getFailureTimeline(req, res) {
 // GET /api/pipeline/analysis/:number
 export async function getPipelineAnalysis(req, res) {
   const { number } = req.params;
+  const requestedJobName = typeof req.query?.jobName === 'string' ? req.query.jobName.trim() : '';
   const buildNumber = Number(number);
   if (!buildNumber || Number.isNaN(buildNumber)) {
     return res.status(400).json({ error: "Invalid build number" });
   }
 
   try {
-    // Look up the most recent AI analysis for this build across all jobs.
-    // This is sufficient for single-job setups and more robust than
-    // coupling strictly to PipelineRawLog presence.
-    const aiDoc = await PipelineAIAnalysis.findOne({ buildNumber })
+    const rawDoc = await PipelineRawLog.findOne(
+      requestedJobName ? { jobName: requestedJobName, buildNumber } : { buildNumber }
+    )
+      .sort({ executedAt: -1, updatedAt: -1 })
+      .lean();
+
+    if (!rawDoc) {
+      return res.status(404).json({ error: "Analysis not found" });
+    }
+
+    const aiDoc = await PipelineAIAnalysis.findOne({
+      jobName: rawDoc.jobName,
+      buildNumber: rawDoc.buildNumber,
+    })
       .sort({ updatedAt: -1 })
       .lean();
 
@@ -547,13 +564,14 @@ export async function analyzeJenkinsLogs(req, res) {
 
 export async function reanalyzePipelineBuild(req, res) {
   const { number } = req.params;
+  const jobName = typeof req.query?.jobName === 'string' ? req.query.jobName.trim() : '';
   if (!number || Number.isNaN(Number(number))) {
     return res.status(400).json({ error: "Invalid build number" });
   }
   try {
     // Emit real-time progress via Socket.IO during analysis
     const io = req.app.get('io');
-    const combined = await getBuildWithAnalysis(Number(number));
+    const combined = await getBuildWithAnalysis(Number(number), { jobName: jobName || undefined });
     if (!combined) return res.status(404).json({ error: "Build not found" });
     if (combined.raw.status !== 'FAILURE') {
       return res.json({
@@ -561,7 +579,7 @@ export async function reanalyzePipelineBuild(req, res) {
         aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
       });
     }
-    const analysis = await reanalyzeBuild(Number(number), { io });
+    const analysis = await reanalyzeBuild(Number(number), { io, jobName: jobName || undefined });
     return res.json(analysis);
   } catch (e) {
     if (e?.status === 429) {

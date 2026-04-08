@@ -16,6 +16,26 @@ import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
 import { testJenkinsConnection } from '../services/settingsService.js';
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+const DASHBOARD_CACHE_KEY = 'dcpvas.dashboard.last-state';
+
+function hasStateData(state) {
+  return !!(
+    state?.latestBuild ||
+    (Array.isArray(state?.pipelines) && state.pipelines.length > 0) ||
+    (Array.isArray(state?.failures) && state.failures.length > 0)
+  );
+}
+
+function readCachedDashboardState() {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return hasStateData(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Dashboard({ mode }) {
   const { isConnected, warning, refresh } = useJenkinsStatus();
@@ -23,12 +43,23 @@ export default function Dashboard({ mode }) {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
-  const [pipelineState, setPipelineState] = useState(null);
+  const [pipelineState, setPipelineState] = useState(() => readCachedDashboardState());
   const [analysis, setAnalysis] = useState(null);
-  const [stateLoading, setStateLoading] = useState(true);
+  const [stateLoading, setStateLoading] = useState(() => !hasStateData(readCachedDashboardState()));
   const [stateError, setStateError] = useState('');
   const eventSourceRef = useRef(null);
+  const lastKnownStateRef = useRef(readCachedDashboardState());
   const [sseFailed, setSseFailed] = useState(false);
+
+  useEffect(() => {
+    if (!hasStateData(pipelineState)) return;
+    lastKnownStateRef.current = pipelineState;
+    try {
+      localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(pipelineState));
+    } catch {
+      // Ignore storage failures in private mode / restricted browsers.
+    }
+  }, [pipelineState]);
 
   const connectionLoading = isConnected === null;
   const disconnected = isConnected === false || warning;
@@ -52,7 +83,6 @@ export default function Dashboard({ mode }) {
   // Live dashboard via SSE
   useEffect(() => {
     if (!connected) {
-      setPipelineState(null);
       setStateLoading(false);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -61,47 +91,74 @@ export default function Dashboard({ mode }) {
       return undefined;
     }
 
-    if (eventSourceRef.current) return undefined;
-
+    let disposed = false;
     const url = `${apiBase.replace(/\/$/, '')}/events/pipeline-stream`;
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
-
-    es.onopen = () => {
-      setSseFailed(false);
-    };
-
-    es.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data || '{}');
-        console.log('PIPELINE STATE (SSE):', data);
-        console.log('AI ANALYSIS (from SSE state):', data?.aiAnalysis);
-        setPipelineState(data || null);
-        setStateLoading(false);
-        setStateError('');
-      } catch {
-        // ignore malformed payloads
+    const closeStream = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
 
-    es.onerror = () => {
-      console.warn('SSE connection lost; retrying...');
-      es.close();
-      eventSourceRef.current = null;
-      setSseFailed(true);
+    const attachSse = () => {
+      if (disposed || eventSourceRef.current) return;
 
-      setTimeout(() => {
-        if (connected && !eventSourceRef.current) {
-          const retry = new EventSource(url);
-          eventSourceRef.current = retry;
-          retry.onmessage = es.onmessage;
-          retry.onerror = es.onerror;
+      const es = new EventSource(url);
+      eventSourceRef.current = es;
+
+      es.onopen = () => {
+        setSseFailed(false);
+      };
+
+      es.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data || '{}');
+          console.log('PIPELINE STATE (SSE):', data);
+          console.log('AI ANALYSIS (from SSE state):', data?.aiAnalysis);
+          setPipelineState((prev) => ({
+            ...(prev || {}),
+            ...(data || {}),
+          }));
+          setStateLoading(false);
+          setStateError('');
+        } catch {
+          // ignore malformed payloads
         }
-      }, 2000);
+      };
+
+      es.onerror = () => {
+        console.warn('SSE connection lost; retrying...');
+        closeStream();
+        setSseFailed(true);
+      };
     };
 
+    const hydrateFromRest = async () => {
+      // Initial REST hydrate (single state source), then attach SSE.
+      try {
+        const res = await fetch(`${apiBase}/dashboard/state`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        const data = await res.json();
+        if (!disposed && data && typeof data === 'object') {
+          setPipelineState(data);
+          setStateLoading(false);
+          setStateError('');
+        }
+      } catch (err) {
+        console.warn('Initial /dashboard/state fetch failed', err);
+      }
+
+      // Attach SSE after initial hydration attempt.
+      attachSse();
+    };
+
+    void hydrateFromRest();
+
     return () => {
-      es.close();
+      disposed = true;
+      closeStream();
     };
   }, [connected]);
 
@@ -127,7 +184,7 @@ export default function Dashboard({ mode }) {
         setStateError('');
       } catch (err) {
         if (!mounted) return;
-        setStateError('Failed to load dashboard state');
+        setStateError('Live stream lost. Retrying with REST fallback.');
         setStateLoading(false);
       }
     };
@@ -147,32 +204,78 @@ export default function Dashboard({ mode }) {
     if (!stateLoading) return undefined;
 
     const timeoutId = setTimeout(() => {
+      if (!hasStateData(pipelineState) && hasStateData(lastKnownStateRef.current)) {
+        setPipelineState(lastKnownStateRef.current);
+        setStateError((prev) => prev || 'Live data delayed. Showing last known state.');
+      }
       setStateLoading(false);
-    }, 8000);
+    }, 3000);
 
     return () => clearTimeout(timeoutId);
-  }, [connected, stateLoading]);
+  }, [connected, stateLoading, pipelineState]);
 
   // Derived state from pipelineState
-  const latestBuild = pipelineState?.latestBuild || null;
-  const history = pipelineState?.pipelines || [];
-  const failures = pipelineState?.failures || [];
-  const metrics = pipelineState?.metrics || null;
-  const aiStatus = pipelineState?.aiStatus || null;
-  const stages = pipelineState?.stages || [];
+  const liveSyncData = useMemo(() => {
+    const latest = pipelineState?.latestBuild || null;
+    const syncedStages = Array.isArray(pipelineState?.stages) ? pipelineState.stages : [];
+    const syncedAiStatus = pipelineState?.aiStatus || null;
 
-  const metricsUnavailable = disconnected;
+    if (!latest && !syncedAiStatus && !syncedStages.length) return null;
+
+    return {
+      ...(latest || {}),
+      stages: syncedStages,
+      aiStatus: syncedAiStatus,
+    };
+  }, [pipelineState]);
+
+  useEffect(() => {
+    if (!liveSyncData?.buildNumber) return;
+    console.log('RENDER SYNC:', liveSyncData.buildNumber);
+  }, [liveSyncData]);
+
+  const latestBuild = liveSyncData || null;
+  const {
+    pipelines = [],
+    failures = [],
+    metrics = null,
+  } = pipelineState || {};
+  const history = pipelines;
+  const aiStatus = liveSyncData?.aiStatus || null;
+  const stages = liveSyncData?.stages || [];
+
   const metricsLoadingState = stateLoading || connectionLoading;
-  const m = metrics || {};
-  const valTotal = metricsUnavailable ? '—' : (Number.isFinite(m.totalPipelines) ? m.totalPipelines : 0);
-  const valActive = metricsUnavailable ? '—' : (Number.isFinite(m.activeBuilds) ? m.activeBuilds : 0);
-  const valFailed = metricsUnavailable ? '—' : (Number.isFinite(m.failedToday) ? m.failedToday : 0);
-  const valFixTime = metricsUnavailable
-    ? '—'
-    : (typeof m.avgFixTime === 'number' || typeof m.avgFixTime === 'string' ? m.avgFixTime : '--');
-  const valAccuracy = metricsUnavailable ? '—' : (Number.isFinite(m.aiAccuracy) ? `${m.aiAccuracy}%` : '--');
+  const stats = useMemo(() => {
+    const today = new Date().toDateString();
+    const safePipelines = Array.isArray(pipelines) ? pipelines : [];
 
-  const showCardsSkeleton = metricsLoadingState && !metrics;
+    const totalPipelines = safePipelines.length || 0;
+    const activeBuilds = safePipelines.filter((p) => String(p?.status || '').toUpperCase() === 'RUNNING').length || 0;
+    const failedToday = safePipelines.filter((p) => {
+      const status = String(p?.status || '').toUpperCase();
+      const ts = p?.timestamp || p?.executedAt || p?.createdAt || null;
+      if (!ts) return false;
+      return status === 'FAILURE' && new Date(ts).toDateString() === today;
+    }).length || 0;
+
+    const avgFixTime = metrics?.avgFixTime ?? '--';
+    const aiAccuracy = metrics?.aiAccuracy != null ? `${metrics.aiAccuracy}%` : '--';
+
+    return {
+      totalPipelines,
+      activeBuilds,
+      failedToday,
+      avgFixTime,
+      aiAccuracy,
+    };
+  }, [pipelineState, pipelines, metrics]);
+
+  useEffect(() => {
+    if (!pipelineState) return;
+    console.log('CARD DATA:', stats);
+  }, [pipelineState, stats]);
+
+  const showCardsSkeleton = metricsLoadingState && !pipelineState;
   const showPipelineSkeleton = connected && stateLoading && !latestBuild;
   const tableLoading = connectionLoading || (connected && stateLoading);
 
@@ -283,7 +386,7 @@ export default function Dashboard({ mode }) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <MetricCard
             title="Total Pipelines"
-            value={valTotal}
+            value={stats.totalPipelines}
             color="indigo"
             icon="chart-line"
             loading={metricsLoadingState}
@@ -291,7 +394,7 @@ export default function Dashboard({ mode }) {
           />
           <MetricCard
             title="Active Builds"
-            value={valActive}
+            value={stats.activeBuilds}
             color="cyan"
             icon="activity"
             loading={metricsLoadingState}
@@ -299,7 +402,7 @@ export default function Dashboard({ mode }) {
           />
           <MetricCard
             title="Failed Today"
-            value={valFailed}
+            value={stats.failedToday}
             color="red"
             icon="alert"
             loading={metricsLoadingState}
@@ -307,7 +410,7 @@ export default function Dashboard({ mode }) {
           />
           <MetricCard
             title="Avg Fix Time"
-            value={valFixTime}
+            value={stats.avgFixTime}
             color="emerald"
             icon="clock"
             loading={metricsLoadingState}
@@ -315,7 +418,7 @@ export default function Dashboard({ mode }) {
           />
           <MetricCard
             title="AI Accuracy"
-            value={valAccuracy}
+            value={stats.aiAccuracy}
             color="violet"
             icon="brain"
             loading={metricsLoadingState}
@@ -392,8 +495,7 @@ export default function Dashboard({ mode }) {
 
                   {latestBuild && (
                     <AnalysisStatusBar
-                      stage={aiStatus?.stage}
-                      skipped={aiStatus?.skipped}
+                      data={liveSyncData}
                       className="mb-3"
                     />
                   )}
@@ -407,11 +509,7 @@ export default function Dashboard({ mode }) {
                     )}
                     <div className="-mt-1">
                       <PipelineFlow
-                        stages={stages}
-                        buildNumber={latestBuild?.buildNumber}
-                        status={latestBuild?.status}
-                        durationMs={latestBuild?.duration}
-                        jobName={latestBuild?.jobName}
+                        data={liveSyncData}
                       />
                     </div>
                   </div>

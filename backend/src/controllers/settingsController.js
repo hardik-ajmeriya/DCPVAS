@@ -4,6 +4,18 @@ import { encrypt } from "../services/cryptoService.js";
 
 const REQUIRED_FIELDS = ["jenkinsUrl", "username", "apiToken"];
 
+async function findLatestJenkinsSettings(selectClause = null) {
+  let query = JenkinsSettings.findOne({ type: "jenkins" }).sort({ updatedAt: -1, createdAt: -1 });
+  if (selectClause) query = query.select(selectClause);
+
+  let settings = await query;
+  if (settings) return settings;
+
+  query = JenkinsSettings.findOne({}).sort({ updatedAt: -1, createdAt: -1 });
+  if (selectClause) query = query.select(selectClause);
+  return query;
+}
+
 // Simple middleware-style validator; avoids leaking secrets while enforcing required fields
 export function validateJenkinsTestPayload(req, res, next) {
   const payload = req.body || {};
@@ -77,8 +89,11 @@ export async function saveJenkinsSettings(req, res) {
       username,
     });
 
+    const existing = await findLatestJenkinsSettings();
+    const filter = existing ? { _id: existing._id } : { type: "jenkins" };
+
     const saved = await JenkinsSettings.findOneAndUpdate(
-      { type: "jenkins" },
+      filter,
       { $set: update },
       { upsert: true, new: true },
     );
@@ -99,11 +114,7 @@ export async function saveJenkinsSettings(req, res) {
 
 export async function getJenkinsSettings(req, res) {
   try {
-    let settings = await JenkinsSettings.findOne({ type: "jenkins" }).select("-apiToken -token");
-    if (!settings) {
-      // Backwards compatibility for records created before `type` field existed
-      settings = await JenkinsSettings.findOne().select("-apiToken -token");
-    }
+    const settings = await findLatestJenkinsSettings("-apiToken -token");
 
     if (!settings) {
       console.warn("[JenkinsSettings] getJenkinsSettings: no config found in database");
@@ -171,8 +182,11 @@ export async function testJenkinsConnection(req, res) {
       update.token = encrypted;
     }
 
+    const existing = await findLatestJenkinsSettings();
+    const filter = existing ? { _id: existing._id } : { type: "jenkins" };
+
     const saved = await JenkinsSettings.findOneAndUpdate(
-      { type: "jenkins" },
+      filter,
       { $set: update },
       { upsert: true, new: true },
     );
@@ -239,10 +253,7 @@ export async function getJenkinsSettingsDebug(req, res) {
       }),
     ]);
 
-    let settings = await JenkinsSettings.findOne({ type: "jenkins" }).lean();
-    if (!settings) {
-      settings = await JenkinsSettings.findOne({}).lean();
-    }
+    const settings = await findLatestJenkinsSettings();
 
     const summary = settings
       ? {
