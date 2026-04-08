@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getDiagnostics, getFailureTimeline, analyzeJenkinsLogs, reanalyzePipelineBuild, getAnalysisStatus, streamPipelineStages, getAnalysisStatusForJob } from '../controllers/pipelineController.js';
+import { getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getDiagnostics, getFailureTimeline, analyzeJenkinsLogs, reanalyzePipelineBuild, getPipelineAnalysis, streamPipelineStages, getAnalysisStatusForJob } from '../controllers/pipelineController.js';
 
 const router = Router();
 
@@ -10,7 +10,7 @@ router.get('/history', getPipelineHistory);
 router.get('/logs/:number', getPipelineLogs);
 router.get('/stages', getPipelineStages);
 router.get('/build/:number', getPipelineBuild);
-router.get('/analysis/:number', getAnalysisStatus);
+router.get('/analysis/:number', getPipelineAnalysis);
 router.get('/analysis-status/:jobName/:buildNumber', getAnalysisStatusForJob);
 router.get('/diagnostics', getDiagnostics);
 router.get('/failures', getFailureTimeline);

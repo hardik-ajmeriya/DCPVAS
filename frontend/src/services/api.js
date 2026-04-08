@@ -190,16 +190,4 @@ export async function getAnalysisStatus(jobName, buildNumber) {
   return data?.data || null;
 }
 
-<<<<<<< HEAD
-export async function getInsights() {
-  const { data } = await withBackoff(() => api.get('/insights'), {
-    retries: 1,
-    baseDelayMs: 700,
-  });
-  return data || null;
-}
-
-export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics, getInsights };
-=======
 export default { getJenkinsSettings, getLatestPipeline, getLatestPipelineFlow, getPipelineHistory, getPipelineLogs, getPipelineStages, getPipelineBuild, getExecutions, getExecution, getRawLogs, getPipelineAnalysis, getDashboardMetrics, getAIInsights };
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)

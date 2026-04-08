@@ -40,26 +40,6 @@ let pollingTimer = null;
 const POLLING_INTERVAL_MS = 5000;
 
 export async function getJenkinsConfig() {
-<<<<<<< HEAD
-  const settings = await JenkinsSettings.findOne();
-  if (!settings) throw new Error('Jenkins not configured');
-  let password;
-  try {
-    password = decrypt(settings.apiToken);
-    console.log('Decrypt success');
-  } catch (err) {
-    console.error('[JenkinsConfig] Failed to decrypt stored Jenkins token:', err?.message || err);
-    try {
-      await JenkinsSettings.deleteMany({});
-      console.warn('[JenkinsConfig] Cleared invalid Jenkins settings; user must reconfigure credentials.');
-    } catch (cleanupErr) {
-      console.error('[JenkinsConfig] Failed to clear invalid Jenkins settings:', cleanupErr?.message || cleanupErr);
-    }
-    const error = new Error('Invalid stored credentials');
-    error.code = 'JENKINS_INVALID_CREDENTIALS';
-    throw error;
-  }
-=======
   const [total, typed] = await Promise.all([
     JenkinsSettings.countDocuments({}).catch((e) => {
       console.error('[JenkinsSettings] countDocuments(all) failed:', e?.message || e);
@@ -107,7 +87,17 @@ export async function getJenkinsConfig() {
     password = decrypt(encryptedToken);
   } catch (err) {
     console.error('[JenkinsSettings] getJenkinsConfig: failed to decrypt Jenkins token:', err?.message || err);
-    throw new Error('Failed to decrypt Jenkins token; check SECRET_KEY');
+
+    // Preserve previous behavior: mark credentials as invalid so callers can surface a clear error
+    try {
+      await JenkinsSettings.updateOne({ _id: settings._id }, { $set: { isConnected: false } });
+    } catch (updateErr) {
+      console.error('[JenkinsSettings] getJenkinsConfig: failed to mark settings as disconnected:', updateErr?.message || updateErr);
+    }
+
+    const error = new Error('Invalid stored credentials');
+    error.code = 'JENKINS_INVALID_CREDENTIALS';
+    throw error;
   }
 
   console.log('[JenkinsSettings] Fetched config for Jenkins client:', {
@@ -117,7 +107,6 @@ export async function getJenkinsConfig() {
     isConnected: settings.isConnected,
     lastVerifiedAt: settings.lastVerifiedAt,
   });
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
   return {
     baseUrl,

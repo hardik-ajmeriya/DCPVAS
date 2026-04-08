@@ -18,9 +18,10 @@ export default function PipelineTable({ rows = [], onSelect, title = 'Live Pipel
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border-color)]">
-            {rows.map((r) => {
+            {rows.map((r, index) => {
               const status = String(r.status || r.buildStatus || 'UNKNOWN').toUpperCase();
               const isRunning = status === 'BUILDING' || status === 'RUNNING';
+              const isLatest = index === 0;
               const statusColor =
                 status === 'SUCCESS' ? 'text-green-400' :
                 status === 'FAILURE' || status === 'FAILED' ? 'text-red-400' :
@@ -28,12 +29,27 @@ export default function PipelineTable({ rows = [], onSelect, title = 'Live Pipel
               const label = isRunning ? 'Running' : (status === 'SUCCESS' ? 'Passed' : status === 'FAILURE' || status === 'FAILED' ? 'Failed' : 'Unknown');
               const key = r._id || `${r.jobName || 'pipeline'}#${r.buildNumber}`;
               return (
-                <tr key={key} className="transition-colors duration-150 hover:bg-gray-50 dark:hover:bg-white/5">
+                <tr
+                  key={key}
+                  className={
+                    `transition-all duration-300 hover:bg-gray-50 dark:hover:bg-white/5 ` +
+                    (isLatest && isRunning ? 'bg-emerald-500/10 border border-emerald-400/30' : '')
+                  }
+                >
                   <td className="py-2 pr-3 font-medium text-gray-900 dark:text-gray-100">{r.jobName || 'Pipeline'} #{r.buildNumber}</td>
                   <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">{r.branch || '—'}</td>
                   <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">{(r.commit || '').slice(0, 7) || '—'}</td>
                   <td className="py-2 pr-3 text-gray-600 dark:text-gray-400">{r.duration || '—'}</td>
-                  <td className={`py-2 pr-3 ${statusColor} ${isRunning ? 'pulse-running' : ''}`}>{label}</td>
+                  <td className="py-2 pr-3">
+                    {isRunning ? (
+                      <span className="inline-flex items-center gap-2 text-emerald-400 font-semibold animate-pulse">
+                        <span className="w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
+                        <span>Running</span>
+                      </span>
+                    ) : (
+                      <span className={statusColor}>{label}</span>
+                    )}
+                  </td>
                   <td className="py-2 text-gray-600 dark:text-gray-400">{r.executedAt ? new Date(r.executedAt).toLocaleString() : '—'}</td>
                 </tr>
               );

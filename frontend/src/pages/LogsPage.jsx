@@ -3,11 +3,7 @@ import BuildList from '../components/logs/BuildList';
 import LogsViewer from '../components/logs/LogsViewer';
 import AIAnalysisPanel from '../components/logs/AIAnalysisPanel';
 import { getPipelineHistory, getPipelineBuild } from '../services/api.js';
-<<<<<<< HEAD
-import LogsSkeleton from '../components/skeletons/LogsSkeleton';
-=======
 import LogsSkeleton from '../components/skeletons/LogsSkeleton.jsx';
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
 export default function LogsPage() {
   const [builds, setBuilds] = useState([]);
@@ -84,11 +80,7 @@ export default function LogsPage() {
 
   const effectiveError = useMemo(() => error, [error]);
 
-<<<<<<< HEAD
-  const showInitialSkeleton = loadingBuilds && builds.length === 0;
-=======
   const showLogsSkeleton = loadingBuilds && builds.length === 0;
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-[#020617] text-gray-900 dark:text-slate-100 gap-3">
@@ -101,13 +93,8 @@ export default function LogsPage() {
         </div>
       </div>
 
-<<<<<<< HEAD
-      {showInitialSkeleton ? (
-        <LogsSkeleton variant="page" />
-=======
       {showLogsSkeleton ? (
         <LogsSkeleton />
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
       ) : (
         <div className="flex flex-1 min-h-0 gap-3 overflow-hidden">
           <div className="w-full md:w-1/4 lg:w-1/5 min-h-0 h-full overflow-y-auto">

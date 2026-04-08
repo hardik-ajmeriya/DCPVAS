@@ -22,7 +22,7 @@ const PipelineAIAnalysisSchema = new mongoose.Schema(
       default: 'FETCH_LOGS',
     },
     // Coarse analysis run lifecycle for frontend recovery
-    analysisRunStatus: { type: String, enum: ['PENDING', 'RUNNING', 'COMPLETED'], default: 'PENDING' },
+    analysisRunStatus: { type: String, enum: ['PENDING', 'RUNNING', 'COMPLETED', 'FAILED'], default: 'PENDING' },
     // Legacy step field retained for compatibility; mirrors analysisStatus
     analysisStep: { type: String, default: 'FETCHING_LOGS' },
     // AI outputs (nullable until READY)
@@ -36,6 +36,9 @@ const PipelineAIAnalysisSchema = new mongoose.Schema(
     aiModel: { type: String, default: '' },
     analysisVersion: { type: String, default: 'v1' },
     generatedAt: { type: Date, default: () => new Date() },
+    // Optional debug field for failure cases; not used by UI but
+    // invaluable when AI fails or times out.
+    errorMessage: { type: String, default: null },
   },
   { timestamps: true }
 );

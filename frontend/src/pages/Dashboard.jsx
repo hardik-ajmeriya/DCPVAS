@@ -1,18 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-<<<<<<< HEAD
-import { AlertTriangle, PlugZap } from 'lucide-react';
-import FailureAnalysis from '../components/FailureAnalysis';
-import { getLatestPipeline, getPipelineHistory, getDashboardMetrics } from '../services/api.js';
-import MetricCard from '../components/MetricCard';
-import PipelineTable from '../components/PipelineTable';
-import PipelineFlow from '../components/PipelineFlow';
-import FailureList from '../components/FailureList';
-import AIEngineCard from '../components/AIEngineCard';
-import AnalysisStatusBar from '../components/AnalysisStatusBar';
-import { subscribeBuilds, subscribeAnalysis } from '../services/socket.js';
-import { useJenkinsStatus } from '../context/JenkinsStatusContext';
-=======
 import { AlertTriangle, PlugZap, Loader2 } from 'lucide-react';
 import FailureAnalysis from '../components/FailureAnalysis.jsx';
 import MetricCard from '../components/MetricCard.jsx';
@@ -24,80 +11,24 @@ import PipelineProcessingSteps from '../components/PipelineProcessingSteps.jsx';
 import AnalysisStatusBar from '../components/AnalysisStatusBar.jsx';
 import CardsSkeleton from '../components/skeletons/CardsSkeleton.jsx';
 import PipelineFlowSkeleton from '../components/skeletons/PipelineFlowSkeleton.jsx';
-import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
-import { testJenkinsConnection } from '../services/settingsService.js';
-import DashboardCardSkeleton from '../components/skeletons/DashboardCardSkeleton';
 import PipelineListSkeleton from '../components/skeletons/PipelineListSkeleton';
-import FailureListSkeleton from '../components/skeletons/FailureListSkeleton';
-import Skeleton from '../components/ui/Skeleton';
-import { API_ORIGIN } from '../config/apiConfig.js';
+import { useJenkinsStatus } from '../context/JenkinsStatusContext.jsx';
+import { testJenkinsConnection } from '../services/settingsService.js';
 
-const ANALYSIS_STAGE_ORDER = {
-  fetch_logs: 1,
-  filter_errors: 2,
-  ai_analysis: 3,
-  store_results: 4,
-  completed: 5,
-  skipped: 5,
-};
-
-const ANALYSIS_STAGE_ALIASES = {
-  waiting_for_build: 'fetch_logs',
-  waiting_for_logs: 'fetch_logs',
-  fetching_logs: 'fetch_logs',
-  fetch_logs: 'fetch_logs',
-  filtering_errors: 'filter_errors',
-  filter_errors: 'filter_errors',
-  ai_analyzing: 'ai_analysis',
-  ai_analysis: 'ai_analysis',
-  store_results: 'store_results',
-  storing_results: 'store_results',
-  completed: 'completed',
-  skipped: 'skipped',
-  not_required: 'skipped',
-};
-
-function normalizeAnalysisStage(progressValue, pipelineStatus) {
-  if (String(pipelineStatus || '').toUpperCase() === 'SUCCESS') {
-    return 'skipped';
-  }
-  const raw = String(progressValue || '').trim().toLowerCase();
-  if (!raw) return null;
-  return ANALYSIS_STAGE_ALIASES[raw] || null;
-}
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 export default function Dashboard({ mode }) {
-<<<<<<< HEAD
-  const [buildData, setBuildData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [history, setHistory] = useState([]);
-  const [analysisState, setAnalysisState] = useState(null);
-  const prevStageRef = useRef(null);
-  const prevBuildNumberRef = useRef(null);
-  const [metrics, setMetrics] = useState(null);
-  const [metricsLoading, setMetricsLoading] = useState(true);
-  const [historyLoading, setHistoryLoading] = useState(true);
-=======
+  const { isConnected, warning, refresh } = useJenkinsStatus();
+
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
   const [pipelineState, setPipelineState] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
   const [stateLoading, setStateLoading] = useState(true);
   const [stateError, setStateError] = useState('');
   const eventSourceRef = useRef(null);
-  const prevStageRef = useRef(null);
   const [sseFailed, setSseFailed] = useState(false);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
-  const { isConnected, warning, refresh } = useJenkinsStatus();
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const syncInFlightRef = useRef(false);
-  const syncQueuedRef = useRef(false);
-  const syncTimerRef = useRef(null);
-  const pollIntervalRef = useRef(null);
-  const lastSyncAtRef = useRef(0);
-  const metricsInFlightRef = useRef(false);
-  const lastMetricsFetchAtRef = useRef(0);
-  const [pipelineState, setPipelineState] = useState(null);
 
   const connectionLoading = isConnected === null;
   const disconnected = isConnected === false || warning;
@@ -118,117 +49,10 @@ export default function Dashboard({ mode }) {
     }
   };
 
-<<<<<<< HEAD
-  useEffect(() => {
-=======
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-  const terminalTimerRef = useRef(null);
-  useEffect(() => {
-    buildRef.current = pipelineState?.latestBuild || null;
-  }, [pipelineState]);
-
-  // Force terminal rendering to avoid stuck spinner after completion
-  useEffect(() => {
-    if (terminalTimerRef.current) {
-      clearTimeout(terminalTimerRef.current);
-      terminalTimerRef.current = null;
-    }
-    const currentStage = pipelineState?.aiStatus?.stage;
-    const skipped = pipelineState?.aiStatus?.skipped;
-    if (currentStage && ['completed', 'skipped'].includes(String(currentStage).toLowerCase())) {
-      terminalTimerRef.current = setTimeout(() => {
-        prevStageRef.current = currentStage;
-      }, 2000);
-    }
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
-    return () => {
-      if (syncTimerRef.current) {
-        clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = null;
-      }
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-<<<<<<< HEAD
-  }, []);
-
-  useEffect(() => {
-    const buildNumber = Number(buildData?.buildNumber);
-    const hasValidBuild = Number.isFinite(buildNumber) && buildNumber > 0;
-    const progressRaw = buildData?.progress ?? buildData?.analysisStatus ?? buildData?.analysisStep;
-    const nextStage = normalizeAnalysisStage(progressRaw, buildData?.status);
-
-    if (!hasValidBuild) {
-      prevBuildNumberRef.current = null;
-      prevStageRef.current = null;
-      setAnalysisState(nextStage ? { stage: nextStage, skipped: nextStage === 'skipped' } : null);
-      return;
-    }
-
-    const buildChanged = prevBuildNumberRef.current !== buildNumber;
-    if (buildChanged) {
-      // New build detected: clear previous build's monotonic stage memory.
-      prevStageRef.current = null;
-    }
-    prevBuildNumberRef.current = buildNumber;
-
-    if (!nextStage) {
-      prevStageRef.current = null;
-      setAnalysisState(nextStage ? { stage: nextStage, skipped: nextStage === 'skipped' } : null);
-      return;
-    }
-
-    const previousStage = prevStageRef.current;
-    const resolvedStage = !previousStage || ANALYSIS_STAGE_ORDER[nextStage] >= ANALYSIS_STAGE_ORDER[previousStage]
-      ? nextStage
-      : previousStage;
-
-    prevStageRef.current = resolvedStage;
-    setAnalysisState({ stage: resolvedStage, skipped: resolvedStage === 'skipped' });
-  }, [buildData?.buildNumber, buildData?.progress, buildData?.analysisStatus, buildData?.analysisStep, buildData?.status]);
-=======
-  }, [pipelineState]);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
-
+  // Live dashboard via SSE
   useEffect(() => {
     if (!connected) {
       setPipelineState(null);
-<<<<<<< HEAD
-      setBuildData(null);
-      setLoading(false);
-      return undefined;
-    }
-
-    setLoading(true);
-    const origin = API_ORIGIN || '';
-    const url = origin ? `${origin}/api/pipeline/stream` : '/api/pipeline/stream';
-    const es = new EventSource(url);
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('Pipeline SSE response:', data);
-        setPipelineState(data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to parse pipeline SSE payload', err);
-        setLoading(false);
-      }
-    };
-
-    es.onerror = (err) => {
-      console.error('Pipeline SSE error', err);
-      // Close the connection so the browser stops retrying a broken stream.
-      try {
-        es.close();
-      } catch (_) {
-        // ignore
-      }
-      setLoading(false);
-      setError('Failed to load latest');
-=======
       setStateLoading(false);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -239,7 +63,8 @@ export default function Dashboard({ mode }) {
 
     if (eventSourceRef.current) return undefined;
 
-    const es = new EventSource(`${apiBase.replace(/\/$/, '')}/events/pipeline-stream`);
+    const url = `${apiBase.replace(/\/$/, '')}/events/pipeline-stream`;
+    const es = new EventSource(url);
     eventSourceRef.current = es;
 
     es.onopen = () => {
@@ -249,10 +74,14 @@ export default function Dashboard({ mode }) {
     es.onmessage = (evt) => {
       try {
         const data = JSON.parse(evt.data || '{}');
+        console.log('PIPELINE STATE (SSE):', data);
+        console.log('AI ANALYSIS (from SSE state):', data?.aiAnalysis);
         setPipelineState(data || null);
         setStateLoading(false);
         setStateError('');
-      } catch {}
+      } catch {
+        // ignore malformed payloads
+      }
     };
 
     es.onerror = () => {
@@ -260,127 +89,44 @@ export default function Dashboard({ mode }) {
       es.close();
       eventSourceRef.current = null;
       setSseFailed(true);
+
       setTimeout(() => {
         if (connected && !eventSourceRef.current) {
-          const retry = new EventSource(`${apiBase.replace(/\/$/, '')}/events/pipeline-stream`);
+          const retry = new EventSource(url);
           eventSourceRef.current = retry;
           retry.onmessage = es.onmessage;
           retry.onerror = es.onerror;
         }
       }, 2000);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     };
 
     return () => {
       es.close();
     };
-<<<<<<< HEAD
   }, [connected]);
 
-  useEffect(() => {
-    if (!pipelineState) return;
-
-    const ai = pipelineState.aiStatus || {};
-    let progressStage = null;
-    if (ai.completed) progressStage = 'completed';
-    else if (ai.storing) progressStage = 'store_results';
-    else if (ai.analyzing) progressStage = 'ai_analysis';
-    else if (ai.filteringErrors) progressStage = 'filter_errors';
-    else if (ai.fetchingLogs) progressStage = 'fetch_logs';
-
-    setBuildData((prev) => ({
-      ...(prev || {}),
-      jobName: pipelineState.jobName || prev?.jobName || 'Pipeline',
-      buildNumber: pipelineState.buildNumber ?? prev?.buildNumber ?? null,
-      status: pipelineState.status || prev?.status || 'UNKNOWN',
-      buildStatus: pipelineState.status || prev?.buildStatus || 'UNKNOWN',
-      building: !!pipelineState.building,
-      stages: Array.isArray(pipelineState.stages) ? pipelineState.stages : [],
-      executedAt: pipelineState.executedAt || prev?.executedAt || null,
-      analysisStatus: progressStage ? progressStage.toUpperCase() : (prev?.analysisStatus || null),
-      progress: progressStage || prev?.progress || null,
-    }));
-    setLoading(false);
-    setError('');
-  }, [pipelineState]);
-
-  // Dashboard metrics: fetch on mount, refresh every 30s, and debounce event-triggered refreshes
-=======
-  }, [connected, apiBase]);
-
   // REST polling fallback when SSE is unavailable
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
   useEffect(() => {
     if (!connected || !sseFailed) return undefined;
 
-<<<<<<< HEAD
-    let intervalId = null;
-    let debounceTimerId = null;
-=======
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     let mounted = true;
     let intervalId = null;
 
-<<<<<<< HEAD
-    const refreshMetrics = async ({ force = false } = {}) => {
-      const now = Date.now();
-      const minGapMs = 10000;
-      if (!force && now - lastMetricsFetchAtRef.current < minGapMs) {
-        return;
-      }
-      if (metricsInFlightRef.current) {
-        return;
-      }
-
-      metricsInFlightRef.current = true;
-      lastMetricsFetchAtRef.current = now;
-=======
     const fetchState = async () => {
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
       try {
         const res = await fetch(`${apiBase}/dashboard/state`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' },
         });
         const data = await res.json();
+        console.log('PIPELINE STATE (REST snapshot):', data);
+        console.log('AI ANALYSIS (from REST snapshot):', data?.aiAnalysis);
         if (!mounted) return;
         setPipelineState(data || null);
         setStateLoading(false);
         setStateError('');
       } catch (err) {
         if (!mounted) return;
-<<<<<<< HEAD
-        setMetrics(null);
-        setMetricsLoading(false);
-      } finally {
-        metricsInFlightRef.current = false;
-      }
-    };
-
-    const requestMetricsRefresh = () => {
-      if (debounceTimerId) return;
-      debounceTimerId = setTimeout(() => {
-        debounceTimerId = null;
-        refreshMetrics();
-      }, 1200);
-    };
-
-    // Initial
-    refreshMetrics({ force: true });
-    // Poll every 30s
-    intervalId = setInterval(() => refreshMetrics({ force: true }), 30000);
-
-    // Subscribe to build lifecycle and analysis completion to trigger debounced refresh
-    const unsubBuilds = subscribeBuilds({
-      onNew: requestMetricsRefresh,
-      onStarted: requestMetricsRefresh,
-      onCompleted: requestMetricsRefresh,
-    });
-    const unsubAnalysis = subscribeAnalysis({
-      onCompleted: requestMetricsRefresh,
-      onProgress: () => {},
-    });
-=======
         setStateError('Failed to load dashboard state');
         setStateLoading(false);
       }
@@ -388,90 +134,26 @@ export default function Dashboard({ mode }) {
 
     fetchState();
     intervalId = setInterval(fetchState, 5000);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
     return () => {
       mounted = false;
       if (intervalId) clearInterval(intervalId);
-<<<<<<< HEAD
-      if (debounceTimerId) clearTimeout(debounceTimerId);
-      unsubBuilds();
-      unsubAnalysis();
-=======
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     };
-  }, [connected, sseFailed, apiBase]);
+  }, [connected, sseFailed]);
 
   // Safety guard: avoid infinite loading skeleton if backend never responds
   useEffect(() => {
-<<<<<<< HEAD
-    if (!connected) {
-      setHistory([]);
-      setHistoryLoading(false);
-      return undefined;
-    }
-
-    let mounted = true;
-    setHistoryLoading(true);
-    (async () => {
-      try {
-        const runs = await getPipelineHistory('all');
-        if (!mounted) return;
-        setHistory(Array.isArray(runs) ? runs : []);
-      } catch (_) {
-        if (!mounted) return;
-        setHistory([]);
-      } finally {
-        if (mounted) setHistoryLoading(false);
-      }
-    })();
-    const unsubBuilds = subscribeBuilds({
-      onNew: (payload) => {
-        setHistory((prev) => {
-          const exists = prev.some((r) => r.buildNumber === payload?.buildNumber);
-          if (exists) return prev;
-          const item = {
-            jobName: payload?.jobName || 'Pipeline',
-            buildNumber: payload?.buildNumber,
-            status: 'RUNNING',
-            executedAt: new Date().toISOString(),
-          };
-          return [item, ...prev].slice(0, 500);
-        });
-      },
-      onCompleted: (payload) => {
-        setHistory((prev) => prev.map((r) => {
-          if (r.buildNumber !== payload?.buildNumber) return r;
-          const nextStatus = (payload?.status || payload?.result || r.status || 'UNKNOWN').toUpperCase();
-          return { ...r, status: nextStatus };
-        }));
-      },
-    });
-    const unsubAnalysis = subscribeAnalysis({
-      onProgress: (p) => {
-        setHistory((prev) => prev.map((r) => (
-          r.buildNumber === p?.buildNumber ? { ...r, status: 'FAILED' } : r
-        )));
-      },
-      onCompleted: (p) => {
-        setHistory((prev) => prev.map((r) => (
-          r.buildNumber === p?.buildNumber ? { ...r, status: 'FAILED' } : r
-        )));
-      },
-    });
-    return () => { mounted = false; unsubBuilds(); unsubAnalysis(); };
-  }, [connected]);
-=======
     if (!connected) return undefined;
     if (!stateLoading) return undefined;
+
     const timeoutId = setTimeout(() => {
       setStateLoading(false);
     }, 8000);
+
     return () => clearTimeout(timeoutId);
   }, [connected, stateLoading]);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
-  // Stepper depends only on backend state via buildData.progress
+  // Derived state from pipelineState
   const latestBuild = pipelineState?.latestBuild || null;
   const history = pipelineState?.pipelines || [];
   const failures = pipelineState?.failures || [];
@@ -479,36 +161,59 @@ export default function Dashboard({ mode }) {
   const aiStatus = pipelineState?.aiStatus || null;
   const stages = pipelineState?.stages || [];
 
-  const flowData = useMemo(() => {
-    if (!buildData) return null;
-    return {
-      buildNumber: buildData?.buildNumber ?? null,
-      jobName: buildData?.jobName || '',
-      status: buildData?.status || buildData?.buildStatus || 'pending',
-      stages: Array.isArray(buildData?.stages) ? buildData.stages : [],
-      durationMs: Number.isFinite(buildData?.durationMs)
-        ? buildData.durationMs
-        : (Number.isFinite(buildData?.durationSeconds) ? Number(buildData.durationSeconds) * 1000 : null),
-    };
-  }, [buildData]);
-
-  // Helper to format values safely
   const metricsUnavailable = disconnected;
-<<<<<<< HEAD
-  const metricsLoadingState = metricsLoading || connectionLoading;
-  const tableLoading = connectionLoading || (connected && historyLoading);
-=======
   const metricsLoadingState = stateLoading || connectionLoading;
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
   const m = metrics || {};
   const valTotal = metricsUnavailable ? '—' : (Number.isFinite(m.totalPipelines) ? m.totalPipelines : 0);
   const valActive = metricsUnavailable ? '—' : (Number.isFinite(m.activeBuilds) ? m.activeBuilds : 0);
   const valFailed = metricsUnavailable ? '—' : (Number.isFinite(m.failedToday) ? m.failedToday : 0);
-  const valFixTime = metricsUnavailable ? '—' : (typeof m.avgFixTime === 'number' || typeof m.avgFixTime === 'string' ? m.avgFixTime : '--');
+  const valFixTime = metricsUnavailable
+    ? '—'
+    : (typeof m.avgFixTime === 'number' || typeof m.avgFixTime === 'string' ? m.avgFixTime : '--');
   const valAccuracy = metricsUnavailable ? '—' : (Number.isFinite(m.aiAccuracy) ? `${m.aiAccuracy}%` : '--');
 
   const showCardsSkeleton = metricsLoadingState && !metrics;
   const showPipelineSkeleton = connected && stateLoading && !latestBuild;
+  const tableLoading = connectionLoading || (connected && stateLoading);
+
+  // Bind unified AI analysis state from SSE / REST snapshots without
+  // overwriting it when interim events do not yet contain analysis.
+  useEffect(() => {
+    if (!pipelineState?.aiAnalysis) return;
+    if (typeof pipelineState.aiAnalysis !== 'object') return;
+    const keys = Object.keys(pipelineState.aiAnalysis);
+    if (!keys.length) return;
+    setAnalysis(pipelineState.aiAnalysis);
+  }, [pipelineState]);
+
+  // Fallback: if SSE never delivers aiAnalysis, fall back to the
+  // dedicated latest pipeline REST endpoint to hydrate analysis once.
+  useEffect(() => {
+    if (analysis) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const latest = await import('../services/api.js').then((m) => m.getLatestPipeline());
+        const payload = latest?.data || latest;
+        const ai =
+          payload?.aiAnalysis ||
+          payload?.analysis ||
+          payload?.ai ||
+          null;
+        if (!cancelled && ai && typeof ai === 'object' && Object.keys(ai).length > 0) {
+          setAnalysis(ai);
+        }
+      } catch (err) {
+        console.warn('Fallback /pipeline/latest failed', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [analysis]);
 
   const lastUpdatedLabel = useMemo(() => {
     if (!latestBuild?.executedAt) return null;
@@ -529,9 +234,16 @@ export default function Dashboard({ mode }) {
               <div className="text-lg font-semibold text-amber-100">Jenkins Not Connected</div>
               <span className="px-2 py-1 text-xs rounded-full border border-amber-500/40 bg-amber-500/20 text-amber-100">Disconnected</span>
             </div>
-            <div className="text-sm text-amber-50/90">Connect your Jenkins server to start monitoring pipelines and analyzing CI/CD failures.</div>
+            <div className="text-sm text-amber-50/90">
+              Connect your Jenkins server to start monitoring pipelines and analyzing CI/CD failures.
+            </div>
             <div className="flex flex-wrap gap-3">
-              <Link to="/settings" className="px-4 py-2 rounded-lg bg-amber-500 text-slate-900 font-semibold shadow hover:brightness-105 transition-colors">Configure Jenkins</Link>
+              <Link
+                to="/settings"
+                className="px-4 py-2 rounded-lg bg-amber-500 text-slate-900 font-semibold shadow hover:brightness-105 transition-colors"
+              >
+                Configure Jenkins
+              </Link>
               <button
                 type="button"
                 onClick={handleTestConnection}
@@ -550,7 +262,13 @@ export default function Dashboard({ mode }) {
               </button>
             </div>
             {testResult && (
-              <div className={`text-xs px-3 py-2 rounded border ${testResult.status === 'success' ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100' : 'border-red-400/40 bg-red-500/10 text-red-100'}`}>
+              <div
+                className={`text-xs px-3 py-2 rounded border ${
+                  testResult.status === 'success'
+                    ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100'
+                    : 'border-red-400/40 bg-red-500/10 text-red-100'
+                }`}
+              >
                 {testResult.message}
               </div>
             )}
@@ -558,34 +276,53 @@ export default function Dashboard({ mode }) {
         </div>
       )}
 
-      {/* Metrics Row (modern cards with unique gradients and stroke colors) */}
-<<<<<<< HEAD
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-        {metricsLoadingState ? (
-          Array.from({ length: 5 }).map((_, idx) => <DashboardCardSkeleton key={idx} />)
-        ) : (
-          <>
-            <MetricCard title="Total Pipelines" value={valTotal} color="indigo" icon="chart-line" loading={false} series={[0.2,0.35,0.32,0.4,0.38,0.42]} />
-            <MetricCard title="Active Builds" value={valActive} color="cyan" icon="activity" loading={false} series={[0.1,0.2,0.18,0.25,0.22,0.3]} />
-            <MetricCard title="Failed Today" value={valFailed} color="red" icon="alert" loading={false} series={[0.3,0.28,0.25,0.22,0.2,0.18]} />
-            <MetricCard title="Avg Fix Time" value={valFixTime} color="emerald" icon="clock" loading={false} series={[0.5,0.48,0.45,0.42,0.4,0.38]} />
-            <MetricCard title="AI Accuracy" value={valAccuracy} color="violet" icon="brain" loading={false} series={[0.6,0.62,0.64,0.66,0.68,0.7]} />
-          </>
-        )}
-      </div>
-=======
+      {/* Metrics Row */}
       {showCardsSkeleton ? (
         <CardsSkeleton />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-          <MetricCard title="Total Pipelines" value={valTotal} color="indigo" icon="chart-line" loading={metricsLoadingState} series={[0.2,0.35,0.32,0.4,0.38,0.42]} />
-          <MetricCard title="Active Builds" value={valActive} color="cyan" icon="activity" loading={metricsLoadingState} series={[0.1,0.2,0.18,0.25,0.22,0.3]} />
-          <MetricCard title="Failed Today" value={valFailed} color="red" icon="alert" loading={metricsLoadingState} series={[0.3,0.28,0.25,0.22,0.2,0.18]} />
-          <MetricCard title="Avg Fix Time" value={valFixTime} color="emerald" icon="clock" loading={metricsLoadingState} series={[0.5,0.48,0.45,0.42,0.4,0.38]} />
-          <MetricCard title="AI Accuracy" value={valAccuracy} color="violet" icon="brain" loading={metricsLoadingState} series={[0.6,0.62,0.64,0.66,0.68,0.7]} />
+          <MetricCard
+            title="Total Pipelines"
+            value={valTotal}
+            color="indigo"
+            icon="chart-line"
+            loading={metricsLoadingState}
+            series={[0.2, 0.35, 0.32, 0.4, 0.38, 0.42]}
+          />
+          <MetricCard
+            title="Active Builds"
+            value={valActive}
+            color="cyan"
+            icon="activity"
+            loading={metricsLoadingState}
+            series={[0.1, 0.2, 0.18, 0.25, 0.22, 0.3]}
+          />
+          <MetricCard
+            title="Failed Today"
+            value={valFailed}
+            color="red"
+            icon="alert"
+            loading={metricsLoadingState}
+            series={[0.3, 0.28, 0.25, 0.22, 0.2, 0.18]}
+          />
+          <MetricCard
+            title="Avg Fix Time"
+            value={valFixTime}
+            color="emerald"
+            icon="clock"
+            loading={metricsLoadingState}
+            series={[0.5, 0.48, 0.45, 0.42, 0.4, 0.38]}
+          />
+          <MetricCard
+            title="AI Accuracy"
+            value={valAccuracy}
+            color="violet"
+            icon="brain"
+            loading={metricsLoadingState}
+            series={[0.6, 0.62, 0.64, 0.66, 0.68, 0.7]}
+          />
         </div>
       )}
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
       {/* Live Pipeline Table */}
       <div className="space-y-2">
@@ -594,13 +331,21 @@ export default function Dashboard({ mode }) {
         ) : (
           <PipelineTable
             rows={connected ? history.slice(0, 6) : []}
-            emptyMessage={disconnected ? 'No pipelines available. Connect Jenkins to fetch pipeline data.' : 'No pipelines yet.'}
+            emptyMessage={
+              disconnected
+                ? 'No pipelines available. Connect Jenkins to fetch pipeline data.'
+                : 'No pipelines yet.'
+            }
           />
         )}
         {connected && !tableLoading && (
           <div className="flex justify-end">
-            <Link to="/pipelines" className="text-sm text-blue-400 hover:text-blue-300 inline-flex items-center gap-1">
-              View All Pipelines →
+            <Link
+              to="/pipelines"
+              className="text-sm text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
+            >
+              View All Pipelines 
+              <span>→</span>
             </Link>
           </div>
         )}
@@ -613,87 +358,14 @@ export default function Dashboard({ mode }) {
               {stateError}
             </div>
           )}
+
           {!stateLoading && !latestBuild && (
             <div className="card-surface border border-dashed border-slate-500/40 bg-slate-800/40 text-sm text-slate-100">
               No pipeline executions yet.
             </div>
           )}
+
           {/* Pipeline Flow Visual and Failure List side-by-side */}
-<<<<<<< HEAD
-          {loading && !buildData ? (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div className="card-surface mb-1">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-2">
-                      <Skeleton className="h-5 w-40" />
-                      <Skeleton className="h-3 w-36" />
-                    </div>
-                    <Skeleton className="h-3 w-20" />
-                  </div>
-                </div>
-                <div className="rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-4 space-y-3">
-                  <Skeleton className="h-4 w-36" />
-                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                    {Array.from({ length: 5 }).map((_, idx) => (
-                      <div key={idx} className="rounded-lg border border-gray-200 dark:border-slate-800/70 bg-gray-50 dark:bg-slate-800/50 px-3 py-2 flex items-center gap-3">
-                        <Skeleton className="h-10 w-10 rounded-full" />
-                        <Skeleton className="h-3 w-20" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900/70 p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-28" />
-                      <Skeleton className="h-3 w-32" />
-                    </div>
-                    <Skeleton className="h-8 w-24 rounded-lg" />
-                  </div>
-                  <Skeleton className="h-16 w-full rounded-xl" />
-                  <div className="grid grid-cols-5 gap-4">
-                    {Array.from({ length: 5 }).map((_, idx) => (
-                      <div key={idx} className="flex flex-col items-center gap-2">
-                        <Skeleton className="h-14 w-14 rounded-full" />
-                        <Skeleton className="h-3 w-16" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <FailureListSkeleton variant="compact" rows={5} />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <div>
-                {buildData && (
-                  <div className="card-surface mb-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-lg font-semibold">{buildData.jobName || 'Pipeline'}</div>
-                        <div className="text-xs text-gray-600 dark:text-slate-400">Build #{buildData.buildNumber} • {lastUpdatedLabel || '—'}</div>
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-slate-400">Status: {buildData.status || 'UNKNOWN'}</div>
-                    </div>
-                  </div>
-                )}
-                {buildData && (
-                  <AnalysisStatusBar stage={analysisState?.stage} skipped={analysisState?.skipped} className="mb-3" />
-                )}
-                <div className="flex flex-col gap-2">
-                  <div className="-mt-1">
-                    <PipelineFlow flowData={flowData} />
-                  </div>
-                </div>
-              </div>
-              <FailureList
-                failures={history.filter((r) => ['FAILURE', 'FAILED'].includes(String(r.status || '').toUpperCase()))}
-                loading={historyLoading}
-              />
-            </div>
-          )}
-=======
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div>
               {showPipelineSkeleton ? (
@@ -705,18 +377,33 @@ export default function Dashboard({ mode }) {
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="text-lg font-semibold">{latestBuild.jobName || 'Pipeline'}</div>
-                          <div className="text-xs text-gray-600 dark:text-slate-400">Build #{latestBuild.buildNumber} • {lastUpdatedLabel || '—'}</div>
+                          <div className="text-xs text-gray-600 dark:text-slate-400">
+                            Build #{latestBuild.buildNumber} 
+                            <span className="mx-1">•</span>
+                            {lastUpdatedLabel || '—'}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-600 dark:text-slate-400">Status: {latestBuild.status || 'UNKNOWN'}</div>
+                        <div className="text-xs text-gray-600 dark:text-slate-400">
+                          Status: {latestBuild.status || 'UNKNOWN'}
+                        </div>
                       </div>
                     </div>
                   )}
+
                   {latestBuild && (
-                    <AnalysisStatusBar stage={aiStatus?.stage} skipped={aiStatus?.skipped} className="mb-3" />
+                    <AnalysisStatusBar
+                      stage={aiStatus?.stage}
+                      skipped={aiStatus?.skipped}
+                      className="mb-3"
+                    />
                   )}
+
                   <div className="flex flex-col gap-2">
                     {latestBuild?.progress && latestBuild.progress !== 'FAILED' && (
-                      <PipelineProcessingSteps step={latestBuild.progress} pipelineStatus={latestBuild?.status} />
+                      <PipelineProcessingSteps
+                        step={latestBuild.progress}
+                        pipelineStatus={latestBuild?.status}
+                      />
                     )}
                     <div className="-mt-1">
                       <PipelineFlow
@@ -731,17 +418,21 @@ export default function Dashboard({ mode }) {
                 </>
               )}
             </div>
+
             <FailureList failures={failures} />
           </div>
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
           {/* AI Engine Panel */}
           <AIEngineCard
             stats={{
-              analyzedToday: history.filter((r) => r.executedAt && (new Date(r.executedAt).toDateString() === new Date().toDateString())).length,
+              analyzedToday: history.filter(
+                (r) => r.executedAt && new Date(r.executedAt).toDateString() === new Date().toDateString(),
+              ).length,
               avgConfidence: (() => {
-                const cs = history.map((r) => typeof r.confidenceScore === 'number' ? r.confidenceScore : null).filter((v) => v != null);
-                return cs.length ? cs.reduce((a,b)=>a+b,0)/cs.length : 0;
+                const cs = history
+                  .map((r) => (typeof r.confidenceScore === 'number' ? r.confidenceScore : null))
+                  .filter((v) => v != null);
+                return cs.length ? cs.reduce((a, b) => a + b, 0) / cs.length : 0;
               })(),
               fixesGenerated: 0,
               modelOnline: true,
@@ -749,18 +440,21 @@ export default function Dashboard({ mode }) {
           />
 
           {/* Failure Analysis remains, driven by SSE/queries */}
-          {latestBuild && <FailureAnalysis run={latestBuild} />}
+          {latestBuild && <FailureAnalysis run={latestBuild} analysis={analysis} />}
         </>
       ) : connectionLoading ? (
-        <div className="card-surface border border-[var(--border-color)] text-sm text-gray-400">
-          Checking Jenkins connection...
+        <div className="card-surface border border-[var(--border-color)] text-sm text-gray-400 inline-flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Checking Jenkins connection...</span>
         </div>
       ) : (
         <div className="card-surface border border-dashed border-amber-500/30 bg-amber-500/5 text-sm text-amber-100 flex items-start gap-3">
           <PlugZap className="w-5 h-5 mt-0.5" />
           <div>
             <div className="font-semibold">Live dashboards paused</div>
-            <div className="text-amber-100/80">Reconnect Jenkins to see pipelines, flow visualization, and AI insights.</div>
+            <div className="text-amber-100/80">
+              Reconnect Jenkins to see pipelines, flow visualization, and AI insights.
+            </div>
           </div>
         </div>
       )}

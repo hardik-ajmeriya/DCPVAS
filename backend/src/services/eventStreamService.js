@@ -7,9 +7,6 @@ import { buildDashboardState } from './dashboardStateService.js';
 const clients = new Set();
 const HEARTBEAT_MS = 25000;
 
-<<<<<<< HEAD
-export function registerClient(req, res) {
-=======
 async function pushStateToClient(client, eventMeta) {
   try {
     const state = await buildDashboardState(eventMeta);
@@ -20,8 +17,7 @@ async function pushStateToClient(client, eventMeta) {
   }
 }
 
-export function registerClient(res) {
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
+export function registerClient(req, res) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -43,14 +39,10 @@ export function registerClient(res) {
     }
   }, HEARTBEAT_MS);
 
-<<<<<<< HEAD
-  const cleanup = () => {
-=======
   // Push an initial full dashboard snapshot as soon as the client connects
   void pushStateToClient(client, { type: 'initial_connect' });
 
-  res.on('close', () => {
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
+  const cleanup = () => {
     clearInterval(interval);
     clients.delete(client);
   };
@@ -61,15 +53,9 @@ export function registerClient(res) {
 
 export function broadcastEvent(event) {
   if (!event) return;
-<<<<<<< HEAD
-
-  const payload = `data: ${JSON.stringify(event)}\n\n`;
-  for (const client of Array.from(clients)) {
-=======
   // Compute unified dashboard state and broadcast it to all clients.
   // Errors are logged but do not crash the process.
   void (async () => {
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     try {
       const state = await buildDashboardState(event);
       const payload = `data: ${JSON.stringify(state)}\n\n`;

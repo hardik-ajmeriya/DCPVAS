@@ -97,12 +97,12 @@ export function ProgressBar({ step }) {
 }
 
 /* -------------------- Main Component -------------------- */
-export default function FailureAnalysis({ run }) {
+export default function FailureAnalysis({ run, analysis: analysisProp }) {
   const [tab, setTab] = useState('Human Summary');
   const [logs, setLogs] = useState(null);
   const [localStatus, setLocalStatus] = useState(null);
   const [analysisState, setAnalysisState] = useState(null);
-  const analysis = analysisState || run?.analysis || run || {};
+  const analysis = analysisProp || analysisState || run?.aiAnalysis || run?.analysis || run || {};
   const buildNumber = run?.buildNumber;
   const status = run?.analysisStatus;
   const buildRunning = run?.buildStatus === 'BUILDING';
@@ -124,6 +124,28 @@ export default function FailureAnalysis({ run }) {
   const timelineAvailable = Array.isArray(run?.stages) && run.stages.length > 0;
   const tabs = aiSkipped ? ['Raw Logs'] : [...DEFAULT_TABS, ...(timelineAvailable ? ['Timeline'] : [])];
 
+  // Derived flags for rendering fallbacks when no content is present
+  const hasHumanSummary = Boolean(
+    analysis?.humanSummary?.overview ||
+      (Array.isArray(analysis?.humanSummary?.failureCause) && analysis.humanSummary.failureCause.length > 0) ||
+      (Array.isArray(analysis?.humanSummary?.pipelineImpact) && analysis.humanSummary.pipelineImpact.length > 0),
+  );
+
+  const hasSuggestedFix = Boolean(
+    (Array.isArray(analysis?.suggestedFix?.immediateActions) && analysis.suggestedFix.immediateActions.length > 0) ||
+      (Array.isArray(analysis?.suggestedFix?.debuggingSteps) && analysis.suggestedFix.debuggingSteps.length > 0) ||
+      (Array.isArray(analysis?.suggestedFix?.verification) && analysis.suggestedFix.verification.length > 0),
+  );
+
+  const hasTechnicalRecommendation = Boolean(
+    (Array.isArray(analysis?.technicalRecommendation?.codeLevelActions) &&
+      analysis.technicalRecommendation.codeLevelActions.length > 0) ||
+      (Array.isArray(analysis?.technicalRecommendation?.pipelineImprovements) &&
+        analysis.technicalRecommendation.pipelineImprovements.length > 0) ||
+      (Array.isArray(analysis?.technicalRecommendation?.preventionStrategies) &&
+        analysis.technicalRecommendation.preventionStrategies.length > 0),
+  );
+
   // NEVER auto-switch tabs; keep default on analysis. Users choose manually.
 
   /* Init logs if already present */
@@ -131,22 +153,48 @@ export default function FailureAnalysis({ run }) {
     setLogs(run?.logs ?? null);
   }, [buildNumber, run?.logs]);
 
-  /* Fetch analysis once when status becomes COMPLETED */
+  // Debug: log the incoming run and resolved analysis state
   useEffect(() => {
-    if (status !== 'COMPLETED') return;
+    // Helpful when wiring data: see exactly what the component receives
+    console.log('FailureAnalysis run:', run);
+    console.log('FailureAnalysis analysis (derived):', analysis);
+  }, [run, analysis]);
+
+  /* Fetch analysis once per build for failed executions */
+  useEffect(() => {
     if (!buildNumber) return;
+    // Skip SUCCESS builds or explicitly skipped analyses
+    if (aiSkipped) return;
     // Avoid refetch if already loaded
-    if (analysisState) return;
+    if (analysisState || analysisProp) return;
+
     (async () => {
       try {
         const data = await getPipelineAnalysis(buildNumber);
-        setAnalysisState(data || null);
-        setLocalStatus('COMPLETED');
+        console.log('Pipeline analysis response:', data);
+
+        if (data) {
+          // Normalise common shapes:
+          // - backend may return { aiAnalysis: {...} }
+          // - or full analysis document directly
+          // Prefer aiAnalysis if present, fall back to analysis/result, else raw
+          const normalized =
+            data.aiAnalysis ||
+            data.analysis ||
+            data.result ||
+            data;
+
+          setAnalysisState(normalized);
+
+          if (data.analysisStatus) {
+            setLocalStatus(data.analysisStatus);
+          }
+        }
       } catch (err) {
         console.error('Failed to load analysis', err);
       }
     })();
-  }, [status, buildNumber]);
+  }, [buildNumber, aiSkipped]);
 
   /* Reset local analysis when switching builds */
   useEffect(() => {
@@ -218,30 +266,36 @@ export default function FailureAnalysis({ run }) {
           isHistorical={isHistorical}
         >
           <>
-            {analysis.humanSummary?.overview && (
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                {analysis.humanSummary.overview}
-              </p>
-            )}
-            {Array.isArray(analysis.humanSummary?.failureCause) && analysis.humanSummary.failureCause.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Failure Cause</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.humanSummary.failureCause.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(analysis.humanSummary?.pipelineImpact) && analysis.humanSummary.pipelineImpact.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Pipeline Impact</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.humanSummary.pipelineImpact.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
+            {hasHumanSummary ? (
+              <>
+                {analysis.humanSummary?.overview && (
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                    {analysis.humanSummary.overview}
+                  </p>
+                )}
+                {Array.isArray(analysis.humanSummary?.failureCause) && analysis.humanSummary.failureCause.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Failure Cause</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.humanSummary.failureCause.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(analysis.humanSummary?.pipelineImpact) && analysis.humanSummary.pipelineImpact.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Pipeline Impact</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.humanSummary.pipelineImpact.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">No analysis available</p>
             )}
             {typeof analysis.confidenceScore === 'number' && (
               <div className="mt-4">
@@ -270,35 +324,41 @@ export default function FailureAnalysis({ run }) {
           isHistorical={isHistorical}
         >
           <>
-            {Array.isArray(analysis.suggestedFix?.immediateActions) && analysis.suggestedFix.immediateActions.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Immediate Actions</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.suggestedFix.immediateActions.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(analysis.suggestedFix?.debuggingSteps) && analysis.suggestedFix.debuggingSteps.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Debugging Steps</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.suggestedFix.debuggingSteps.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(analysis.suggestedFix?.verification) && analysis.suggestedFix.verification.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Verification</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.suggestedFix.verification.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
+            {hasSuggestedFix ? (
+              <>
+                {Array.isArray(analysis.suggestedFix?.immediateActions) && analysis.suggestedFix.immediateActions.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Immediate Actions</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.suggestedFix.immediateActions.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(analysis.suggestedFix?.debuggingSteps) && analysis.suggestedFix.debuggingSteps.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Debugging Steps</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.suggestedFix.debuggingSteps.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(analysis.suggestedFix?.verification) && analysis.suggestedFix.verification.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Verification</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.suggestedFix.verification.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">No analysis available</p>
             )}
           </>
         </SectionWrapper>
@@ -316,33 +376,39 @@ export default function FailureAnalysis({ run }) {
           isHistorical={isHistorical}
         >
           <>
-            {Array.isArray(analysis.technicalRecommendation?.codeLevelActions) && analysis.technicalRecommendation.codeLevelActions.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-100 bg-gray-900 rounded px-3 py-2">Code-level Actions</div>
-                <pre className="text-sm bg-gray-900 text-gray-100 p-3 rounded whitespace-pre-wrap font-mono">
-                  {analysis.technicalRecommendation.codeLevelActions.join('\n')}
-                </pre>
-              </div>
-            )}
-            {Array.isArray(analysis.technicalRecommendation?.pipelineImprovements) && analysis.technicalRecommendation.pipelineImprovements.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Pipeline Improvements</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.technicalRecommendation.pipelineImprovements.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(analysis.technicalRecommendation?.preventionStrategies) && analysis.technicalRecommendation.preventionStrategies.length > 0 && (
-              <div>
-                <div className="text-sm font-medium text-gray-800">Prevention Strategies</div>
-                <ul className="list-disc ml-5 text-sm text-gray-700">
-                  {analysis.technicalRecommendation.preventionStrategies.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
+            {hasTechnicalRecommendation ? (
+              <>
+                {Array.isArray(analysis.technicalRecommendation?.codeLevelActions) && analysis.technicalRecommendation.codeLevelActions.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-100 bg-gray-900 rounded px-3 py-2">Code-level Actions</div>
+                    <pre className="text-sm bg-gray-900 text-gray-100 p-3 rounded whitespace-pre-wrap font-mono">
+                      {analysis.technicalRecommendation.codeLevelActions.join('\n')}
+                    </pre>
+                  </div>
+                )}
+                {Array.isArray(analysis.technicalRecommendation?.pipelineImprovements) && analysis.technicalRecommendation.pipelineImprovements.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Pipeline Improvements</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.technicalRecommendation.pipelineImprovements.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(analysis.technicalRecommendation?.preventionStrategies) && analysis.technicalRecommendation.preventionStrategies.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-gray-800">Prevention Strategies</div>
+                    <ul className="list-disc ml-5 text-sm text-gray-700">
+                      {analysis.technicalRecommendation.preventionStrategies.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">No analysis available</p>
             )}
           </>
         </SectionWrapper>

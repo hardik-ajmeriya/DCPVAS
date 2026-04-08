@@ -141,8 +141,29 @@ export async function getLatestPipeline(req, res) {
           technicalRecommendation: ai.technicalRecommendation ?? null,
           confidenceScore: typeof ai.confidenceScore === 'number' ? ai.confidenceScore : null,
           finalResult: ai.finalResult ?? null,
+          // Canonical AI payload for latest pipeline consumers
+          aiAnalysis: {
+            humanSummary: ai.humanSummary ?? null,
+            suggestedFix: ai.suggestedFix ?? null,
+            technicalRecommendation: ai.technicalRecommendation ?? null,
+            confidenceScore: typeof ai.confidenceScore === 'number' ? ai.confidenceScore : null,
+            failedStage: ai.failedStage ?? null,
+            detectedError: ai.detectedError ?? null,
+            finalResult: ai.finalResult ?? null,
+            analysisStatus: ai.analysisStatus ?? null,
+            generatedAt: ai.generatedAt ?? ai.createdAt ?? null,
+          },
         }
-      : base;
+      : {
+          ...base,
+          // When analysis is not yet ready, expose a consistent key so
+          // frontends can safely check for an object instead of juggling
+          // multiple field names.
+          aiAnalysis:
+            ai && ai.analysisStatus === 'SKIPPED'
+              ? { skipped: true, reason: 'NO_FAILURE_DETECTED' }
+              : null,
+        };
 
     const hasInvalidCreds = syncError?.code === 'JENKINS_INVALID_CREDENTIALS';
     if (hasInvalidCreds) {
@@ -264,8 +285,10 @@ export async function getLatestPipelineFlow(req, res) {
     console.log('[getLatestPipelineFlow] response:', flow);
     return res.json(flow);
   } catch (e) {
-<<<<<<< HEAD
-    if (String(e?.message || '').toLowerCase().includes('jenkins not configured')) {
+    const msg = e?.message || e;
+    if (String(msg || '').toLowerCase().includes('jenkins not configured')) {
+      // Jenkins not configured yet – return a neutral pending flow
+      console.warn('[getLatestPipelineFlow] Jenkins not configured; returning pending placeholder flow');
       return res.json({
         jobName: null,
         buildNumber: null,
@@ -276,16 +299,7 @@ export async function getLatestPipelineFlow(req, res) {
         stages: [],
       });
     }
-    console.error('Failed to fetch latest pipeline flow:', e?.message || e);
-=======
-    const msg = e?.message || e;
-    if (msg === 'Jenkins not configured') {
-      // Expected when Jenkins has not been configured yet; treat as a soft failure
-      console.warn('[getLatestPipelineFlow] Jenkins not configured; latest flow unavailable');
-      return res.status(400).json({ error: 'Jenkins not configured' });
-    }
     console.error('Failed to fetch latest pipeline flow:', msg);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     return res.status(502).json({ error: 'Failed to fetch latest pipeline flow' });
   }
 }
@@ -373,6 +387,7 @@ export async function getPipelineBuild(req, res) {
       return res.json({
         ...base,
         analysisStatus: 'NOT_REQUIRED',
+        // Canonical AI payload shape for successful builds
         aiAnalysis: { skipped: true, reason: 'NO_FAILURE_DETECTED' },
       });
     }
@@ -388,8 +403,28 @@ export async function getPipelineBuild(req, res) {
       failedStage: ready ? (ai?.failedStage ?? null) : null,
       detectedError: ready ? (ai?.detectedError ?? null) : null,
       confidenceScore: ready && typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : raw?.confidenceScore ?? null,
-      analysisStatus: raw?.analysisStatus || (ai?.analysisStatus === 'COMPLETED' ? 'COMPLETED' : (raw.buildStatus === 'COMPLETED' ? 'WAITING_FOR_LOGS' : 'WAITING_FOR_BUILD')),
+      analysisStatus:
+        raw?.analysisStatus ||
+        (ai?.analysisStatus === 'COMPLETED'
+          ? 'COMPLETED'
+          : raw.buildStatus === 'COMPLETED'
+            ? 'WAITING_FOR_LOGS'
+            : 'WAITING_FOR_BUILD'),
       finalResult: ai?.finalResult ?? null,
+      // Canonical aiAnalysis envelope for failure builds
+      aiAnalysis: ready
+        ? {
+            humanSummary: ai?.humanSummary ?? null,
+            suggestedFix: ai?.suggestedFix ?? null,
+            technicalRecommendation: ai?.technicalRecommendation ?? null,
+            failedStage: ai?.failedStage ?? null,
+            detectedError: ai?.detectedError ?? null,
+            confidenceScore: typeof ai?.confidenceScore === 'number' ? ai.confidenceScore : null,
+            finalResult: ai?.finalResult ?? null,
+            analysisStatus: ai?.analysisStatus ?? null,
+            generatedAt: ai?.generatedAt ?? ai?.createdAt ?? null,
+          }
+        : null,
     });
   } catch (e) {
     return res.status(502).json({ error: "Failed to fetch build" });
@@ -419,6 +454,34 @@ export async function getFailureTimeline(req, res) {
   } catch (e) {
     console.error("Failed to fetch latest failures:", e?.message || e);
     return res.json({ failures: [] });
+  }
+}
+
+// Return full AI analysis document for a given build number
+// GET /api/pipeline/analysis/:number
+export async function getPipelineAnalysis(req, res) {
+  const { number } = req.params;
+  const buildNumber = Number(number);
+  if (!buildNumber || Number.isNaN(buildNumber)) {
+    return res.status(400).json({ error: "Invalid build number" });
+  }
+
+  try {
+    // Look up the most recent AI analysis for this build across all jobs.
+    // This is sufficient for single-job setups and more robust than
+    // coupling strictly to PipelineRawLog presence.
+    const aiDoc = await PipelineAIAnalysis.findOne({ buildNumber })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    if (!aiDoc) {
+      return res.status(404).json({ error: "Analysis not found" });
+    }
+
+    return res.json(aiDoc);
+  } catch (e) {
+    console.error("Failed to fetch pipeline analysis:", e?.message || e);
+    return res.status(502).json({ error: "Failed to fetch analysis" });
   }
 }
 

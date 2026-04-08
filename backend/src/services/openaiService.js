@@ -103,31 +103,165 @@ export async function analyzeCleanedLogsStrict(inputLogs) {
   const resp = await client.responses.create({
     model,
     input: prompt,
+    // Ask the Responses API to format the text output as a single JSON object.
     text: { format: { type: 'json_object' } },
   });
 
-  let parsed;
+  // Debug raw response for troubleshooting parsing issues.
   try {
-    const content = resp?.output_text || '{}';
-    parsed = JSON.parse(content);
-  } catch {
-    parsed = {
-      failedStage: null,
-      detectedError: null,
-      humanSummary: '',
-      suggestedFix: '',
-      technicalRecommendation: '',
-      confidenceScore: 0,
+    console.log('[AI] RAW RESPONSE META:', {
+      id: resp?.id,
+      outputCount: Array.isArray(resp?.output) ? resp.output.length : 0,
+      outputTypes: Array.isArray(resp?.output) ? resp.output.map((o) => o?.type) : [],
+    });
+  } catch {}
+
+  // Helper to normalise list-like fields into string arrays
+  const toStringArray = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.map((v) => String(v)).map((s) => s.trim()).filter(Boolean);
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed ? [trimmed] : [];
+    }
+    return [];
+  };
+
+  let parsed = {};
+  try {
+    const firstOutput = Array.isArray(resp?.output) && resp.output.length > 0 ? resp.output[0] : null;
+    const firstContent = Array.isArray(firstOutput?.content) && firstOutput.content.length > 0
+      ? firstOutput.content[0]
+      : null;
+
+    // If the SDK already parsed JSON for us, prefer that.
+    if (firstContent && typeof firstContent.json === 'object' && firstContent.json !== null) {
+      parsed = firstContent.json;
+    } else {
+      // Fall back to text content and parse it as JSON manually.
+      let textContent = '';
+      if (firstContent?.text) {
+        if (typeof firstContent.text === 'string') {
+          textContent = firstContent.text;
+        } else if (typeof firstContent.text.value === 'string') {
+          textContent = firstContent.text.value;
+        }
+      } else if (typeof resp?.output_text === 'string') {
+        // Legacy/alternate field some SDKs expose
+        textContent = resp.output_text;
+      }
+
+      console.log('[AI] RAW RESPONSE TEXT:', textContent);
+
+      if (!textContent || typeof textContent !== 'string') {
+        throw new Error('Empty AI response text');
+      }
+
+      parsed = JSON.parse(textContent);
+    }
+  } catch (err) {
+    console.error('[AI] Failed to parse AI JSON response:', err?.message || err);
+    throw err;
+  }
+
+  // ------- Normalise fields into the strict dashboard schema -------
+
+  const failedStage = parsed?.failedStage ?? parsed?.stage ?? null;
+  const detectedError = parsed?.detectedError ?? parsed?.error ?? parsed?.rootCause ?? null;
+
+  // Human Summary
+  let humanSummary = null;
+  const hsObj = parsed && typeof parsed.humanSummary === 'object' && parsed.humanSummary !== null
+    ? parsed.humanSummary
+    : null;
+
+  const overviewFromHs = typeof hsObj?.overview === 'string' ? hsObj.overview : '';
+  const overviewFallback =
+    (typeof parsed?.summary === 'string' && parsed.summary) ||
+    (typeof parsed?.overview === 'string' && parsed.overview) ||
+    '';
+  const overview = (overviewFromHs || overviewFallback).trim();
+
+  const failureCauseArr = toStringArray(hsObj?.failureCause || parsed?.failureCause || parsed?.rootCause);
+  const pipelineImpactArr = toStringArray(hsObj?.pipelineImpact || parsed?.pipelineImpact || parsed?.impact);
+
+  if (overview || failureCauseArr.length || pipelineImpactArr.length) {
+    humanSummary = {
+      overview,
+      failureCause: failureCauseArr,
+      pipelineImpact: pipelineImpactArr,
     };
   }
-  const confidence = typeof parsed?.confidenceScore === 'number' ? parsed.confidenceScore : 0;
+
+  // Suggested Fix
+  let suggestedFix = null;
+  const sfObj = parsed && typeof parsed.suggestedFix === 'object' && parsed.suggestedFix !== null
+    ? parsed.suggestedFix
+    : null;
+
+  const immediateActionsArr = toStringArray(
+    sfObj?.immediateActions || parsed?.fix || parsed?.suggestion || parsed?.immediateActions,
+  );
+  const debuggingStepsArr = toStringArray(sfObj?.debuggingSteps || parsed?.debugSteps || parsed?.debuggingSteps);
+  const verificationArr = toStringArray(sfObj?.verification || parsed?.verification);
+
+  if (immediateActionsArr.length || debuggingStepsArr.length || verificationArr.length) {
+    suggestedFix = {
+      immediateActions: immediateActionsArr,
+      debuggingSteps: debuggingStepsArr,
+      verification: verificationArr,
+    };
+  }
+
+  // Technical Recommendation
+  let technicalRecommendation = null;
+  const trObj = parsed && typeof parsed.technicalRecommendation === 'object' && parsed.technicalRecommendation !== null
+    ? parsed.technicalRecommendation
+    : null;
+
+  const codeActionsArr = toStringArray(
+    trObj?.codeLevelActions || parsed?.technical || parsed?.codeActions || parsed?.codeLevelActions,
+  );
+  const pipelineImprovementsArr = toStringArray(
+    trObj?.pipelineImprovements || parsed?.pipelineImprovements,
+  );
+  const preventionArr = toStringArray(
+    trObj?.preventionStrategies || parsed?.prevention || parsed?.preventionStrategies,
+  );
+
+  if (codeActionsArr.length || pipelineImprovementsArr.length || preventionArr.length) {
+    technicalRecommendation = {
+      codeLevelActions: codeActionsArr,
+      pipelineImprovements: pipelineImprovementsArr,
+      preventionStrategies: preventionArr,
+    };
+  }
+
+  // Confidence score normalisation (support 0–1 and 0–100)
+  let confidenceRaw =
+    parsed?.confidenceScore ?? parsed?.confidence ?? parsed?.score ?? 0;
+  let confidence = typeof confidenceRaw === 'number' ? confidenceRaw : 0;
+  if (confidence > 1 && confidence <= 100) {
+    confidence /= 100;
+  }
   const clamped = Math.max(0, Math.min(1, confidence));
+
+  const hasAnyContent = Boolean(
+    (humanSummary && (humanSummary.overview || humanSummary.failureCause.length || humanSummary.pipelineImpact.length)) ||
+      suggestedFix ||
+      technicalRecommendation,
+  );
+
+  if (!hasAnyContent) {
+    console.error('[AI] Empty analysis payload from AI (no summary/fix/recommendation).');
+  }
+
   return {
-    failedStage: parsed?.failedStage ?? null,
-    detectedError: parsed?.detectedError ?? null,
-    humanSummary: parsed?.humanSummary ?? null,
-    suggestedFix: parsed?.suggestedFix ?? null,
-    technicalRecommendation: parsed?.technicalRecommendation ?? null,
+    failedStage,
+    detectedError,
+    humanSummary,
+    suggestedFix,
+    technicalRecommendation,
     confidenceScore: clamped,
   };
 }
@@ -276,9 +410,20 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
 
   const timeoutGuard = setTimeout(async () => {
     try {
-      if (stageOrder(aiDoc.stage) < ANALYSIS_STAGE.COMPLETED) {
+      // Only auto-complete if we haven't already marked this run as FAILED.
+      if (stageOrder(aiDoc.stage) < ANALYSIS_STAGE.COMPLETED && aiDoc.analysisStatus !== 'FAILED') {
+        // Timeout: treat as a failed terminal state but advance the
+        // stage so the UI does not remain mid-pipeline.
         advanceStage(aiDoc, 'COMPLETED');
+        aiDoc.analysisStatus = 'FAILED';
+        aiDoc.analysisStep = 'FAILED';
+        aiDoc.analysisRunStatus = 'FAILED';
+        aiDoc.errorMessage = 'AI analysis timeout';
         await aiDoc.save();
+        try {
+          await rawDoc.updateOne({ $set: { analysisStatus: 'FAILED' } });
+        } catch {}
+        console.error('[AI] TIMEOUT: analysis exceeded time budget; marking as FAILED');
         emitSSEStage('completed');
         emitSSEComplete('timeout');
       }
@@ -293,7 +438,31 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   emitSSEStage('filter_errors');
   aiDoc.analysisRunStatus = 'RUNNING';
   await aiDoc.save();
-  const cleaned = cleanJenkinsLogs(rawDoc.rawLogs || '');
+  const sourceLogs = rawDoc.rawLogs || rawDoc.logs || '';
+  console.log('[AI] STARTED analysis for build', rawDoc.buildNumber);
+  console.log('[AI] Logs length:', sourceLogs ? sourceLogs.length : 0);
+
+  if (!sourceLogs || sourceLogs.length < 100) {
+    console.error(
+      `[AI] Insufficient logs for analysis (build #${rawDoc.buildNumber}) length=${sourceLogs.length}`,
+    );
+    // Advance stage so the UI stepper reaches the end, while status
+    // fields clearly indicate a failure.
+    advanceStage(aiDoc, 'COMPLETED');
+    aiDoc.analysisStatus = 'FAILED';
+    aiDoc.analysisStep = 'FAILED';
+    aiDoc.analysisRunStatus = 'FAILED';
+    aiDoc.errorMessage = `Insufficient logs for analysis (length=${sourceLogs.length})`;
+    await aiDoc.save();
+    try {
+      await rawDoc.updateOne({ $set: { analysisStatus: 'FAILED' } });
+    } catch {}
+    emitSSEComplete('failed');
+    clearTimeout(timeoutGuard);
+    return aiDoc.toObject();
+  }
+
+  const cleaned = cleanJenkinsLogs(sourceLogs);
 
   // CALLING_OPENAI
   console.log('[AI] Step → CALLING_OPENAI');
@@ -304,12 +473,25 @@ export async function storeAIAnalysisForRawLog(rawDoc, options = {}) {
   let json;
   try {
     json = await analyzeCleanedLogsStrict(cleaned);
+    console.log('[AI] ANALYSIS RESULT (normalized):', json);
   } catch (err) {
     console.error('[AI] OpenAI call failed:', err?.message || err);
+    // Mark the stage as completed so the stepper does not remain
+    // visually stuck in "AI Analyzing" while keeping the logical
+    // status as FAILED for diagnostics.
+    advanceStage(aiDoc, 'COMPLETED');
     aiDoc.analysisStatus = 'FAILED';
     aiDoc.analysisStep = 'FAILED';
+    aiDoc.analysisRunStatus = 'FAILED';
+    aiDoc.errorMessage = err?.message || 'AI analysis failed';
     await aiDoc.save();
-    throw err;
+    try {
+      await rawDoc.updateOne({ $set: { analysisStatus: 'FAILED' } });
+    } catch {}
+    emitProgress('FAILED', 'Analysis failed');
+    emitSSEComplete('failed');
+    clearTimeout(timeoutGuard);
+    return aiDoc.toObject();
   }
 
   // SAVING_RESULT

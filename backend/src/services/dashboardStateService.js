@@ -75,6 +75,7 @@ export async function buildDashboardState(eventMeta) {
     }
 
     let aiStatus = null;
+    let aiAnalysis = null;
     if (latestRun?.jobName && latestRun?.buildNumber != null) {
       const aiDoc = await PipelineAIAnalysis.findOne({
         jobName: latestRun.jobName,
@@ -87,6 +88,12 @@ export async function buildDashboardState(eventMeta) {
           return null;
         });
       aiStatus = deriveAiStatus(aiDoc, latestRun.jobName, latestRun.buildNumber);
+      // Expose full AI document on the dashboard state so SSE consumers and
+      // REST snapshots can bind directly to aiAnalysis without changing the
+      // underlying analysis pipeline.
+      if (aiDoc) {
+        aiAnalysis = aiDoc;
+      }
     }
 
     const pipelines = Array.isArray(history) ? history : [];
@@ -103,6 +110,7 @@ export async function buildDashboardState(eventMeta) {
       failures,
       metrics,
       aiStatus,
+      aiAnalysis,
       stages,
     };
 

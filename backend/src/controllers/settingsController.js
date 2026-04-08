@@ -171,13 +171,6 @@ export async function testJenkinsConnection(req, res) {
       update.token = encrypted;
     }
 
-<<<<<<< HEAD
-    await JenkinsSettings.findOneAndUpdate(
-      {},
-      { $set: update },
-      { upsert: true, new: true }
-    );
-=======
     const saved = await JenkinsSettings.findOneAndUpdate(
       { type: "jenkins" },
       { $set: update },
@@ -192,7 +185,6 @@ export async function testJenkinsConnection(req, res) {
       isConnected: saved?.isConnected,
       lastVerifiedAt: saved?.lastVerifiedAt,
     });
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
     return res.json({
       success: true,

@@ -98,19 +98,8 @@ const stageVariants = {
   hidden: { opacity: 0, y: 10, scale: 0.95 },
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } },
 };
-<<<<<<< HEAD
 
-export default function PipelineFlow({ flowData }) {
-  const stages = Array.isArray(flowData?.stages) ? flowData.stages : [];
-  const buildNumber = flowData?.buildNumber ?? null;
-  const status = flowData?.status || 'pending';
-  const durationMs = typeof flowData?.durationMs === 'number' ? flowData.durationMs : null;
-  const jobName = flowData?.jobName || '';
-  const loading = !flowData;
-
-=======
 export default function PipelineFlow({ stages, buildNumber, status, durationMs, jobName }) {
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
   const normalizedStages = useMemo(
     () => (stages || []).map((stage) => ({
       name: stage?.name || 'Stage',
@@ -166,31 +155,10 @@ export default function PipelineFlow({ stages, buildNumber, status, durationMs, 
           )}
         </div>
 
-<<<<<<< HEAD
-        {loading && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-3 w-40" />
-              </div>
-              <Skeleton className="h-8 w-24 rounded-lg" />
-            </div>
-            <Skeleton className="h-12 w-full rounded-xl" />
-            <div className="grid grid-cols-5 gap-4">
-              {Array.from({ length: 5 }).map((_, idx) => (
-                <div key={idx} className="flex flex-col items-center gap-2">
-                  <Skeleton className="h-14 w-14 rounded-full" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-              ))}
-            </div>
-=======
         {!stages?.length && (
           <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-slate-300/80">
             <div className="w-3 h-3 rounded-full bg-gray-400 dark:bg-slate-500 animate-pulse" />
             <span>Loading latest pipeline flow...</span>
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
           </div>
         )}
 

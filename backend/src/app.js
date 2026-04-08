@@ -36,11 +36,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/events", eventsRoutes);
 app.use("/api/insights", insightsRoutes);
-<<<<<<< HEAD
 console.log("Settings routes mounted at /api/settings");
-=======
-console.log('Settings routes mounted at /api/settings');
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
 // Friendly API root to avoid default 404 on /api
 app.get("/api", (req, res) => {

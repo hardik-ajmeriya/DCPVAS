@@ -1,15 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Brain, CheckCircle2 } from 'lucide-react';
-<<<<<<< HEAD
-import { getInsights } from '../services/api.js';
-import { subscribeBuilds } from '../services/socket.js';
-import AIInsightsSkeleton from '../components/skeletons/AIInsightsSkeleton';
-import Skeleton from '../components/ui/Skeleton';
-=======
 import { getAIInsights } from '../services/api.js';
 import InsightsSkeleton from '../components/skeletons/InsightsSkeleton.jsx';
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
+import Skeleton from '../components/ui/Skeleton.jsx';
 
 function InsightCard({ title, value, accent, onClick, subtitle }) {
   return (
@@ -209,41 +203,10 @@ function AISummary({ text }) {
 
 export default function AIInsights() {
   const navigate = useNavigate();
-<<<<<<< HEAD
-  const [insights, setInsights] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
-  const [clockTick, setClockTick] = useState(Date.now());
-
-  const fetchInsights = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setLoading(true);
-    }
-
-    try {
-      const data = await getInsights();
-      setInsights(data || null);
-      setLastUpdatedAt(new Date(data?.meta?.generatedAt || Date.now()));
-      setError('');
-    } catch (err) {
-      console.error('Failed to fetch insights:', err?.message || err);
-      if (!silent) {
-        setError(err?.response?.data?.error || err?.message || 'Failed to load AI insights');
-      }
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, []);
-=======
-
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(0);
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
 
   const metrics = useMemo(() => {
     if (!insights) return [];
@@ -280,104 +243,11 @@ export default function AIInsights() {
   const aiSuggestions = useMemo(() => insights?.suggestions || [], [insights]);
   const aiSummary = useMemo(() => insights?.summary || '', [insights]);
 
+  const mostFailingStage = insights?.mostFailingStage || null;
+
   const hasInsights = Boolean(!loading && insights && insights.totalRuns > 0);
 
   useEffect(() => {
-<<<<<<< HEAD
-    fetchInsights();
-  }, [fetchInsights]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      fetchInsights({ silent: true });
-    }, 15000);
-    return () => clearInterval(id);
-  }, [fetchInsights]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setClockTick(Date.now());
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const unsubBuilds = subscribeBuilds({
-      onNew: () => fetchInsights({ silent: true }),
-      onStarted: () => fetchInsights({ silent: true }),
-      onCompleted: () => fetchInsights({ silent: true }),
-    });
-
-    return () => {
-      unsubBuilds();
-    };
-  }, [fetchInsights]);
-
-  const totalBuilds = Number(insights?.meta?.totalBuilds || 0);
-  const mostFailingStage = insights?.mostFailingStage || null;
-  const failureTrend = Array.isArray(insights?.failuresTrend) ? insights.failuresTrend : [];
-  const stageReliability = Array.isArray(insights?.stageReliability) ? insights.stageReliability : [];
-  const aiSuggestions = Array.isArray(insights?.suggestions) ? insights.suggestions : [];
-  const aiSummary = insights?.summary || 'No AI summary available yet.';
-
-  const metrics = useMemo(() => ([
-    {
-      title: 'Pipeline Stability',
-      value: `${Number(insights?.stability || 0)}%`,
-      accent: 'from-emerald-500/20 via-slate-900 to-emerald-600/10',
-      subtitle: `Based on ${totalBuilds} completed builds`,
-    },
-    {
-      title: 'Most Failing Stage',
-      value: mostFailingStage || 'N/A',
-      accent: 'from-amber-500/15 via-slate-900 to-red-500/10',
-      subtitle: 'Most frequent failed stage in recent runs',
-    },
-    {
-      title: 'AI Confidence',
-      value: `${Number(insights?.aiConfidence || 0)}%`,
-      accent: 'from-indigo-500/20 via-slate-900 to-purple-600/10',
-      subtitle: 'Average confidence from completed analyses',
-    },
-  ]), [insights?.aiConfidence, insights?.stability, mostFailingStage, totalBuilds]);
-
-  const hasInsights = totalBuilds > 0;
-
-  const lastUpdatedLabel = useMemo(() => {
-    if (!lastUpdatedAt) return 'just now';
-    const diffSeconds = Math.max(0, Math.floor((clockTick - lastUpdatedAt.getTime()) / 1000));
-    return `${diffSeconds}s ago`;
-  }, [clockTick, lastUpdatedAt]);
-
-  if (loading && !insights) {
-    return <AIInsightsSkeleton />;
-  }
-
-  if (error && !insights) {
-    return (
-      <div className="p-6">
-        <div className="rounded-2xl border border-red-300/40 dark:border-red-500/20 bg-red-50/70 dark:bg-red-500/10 p-6 flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3 text-red-700 dark:text-red-200">
-            <AlertCircle className="w-5 h-5 mt-0.5" />
-            <div>
-              <div className="font-medium">Failed to load AI insights</div>
-              <div className="text-sm mt-1">{error}</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => fetchInsights()}
-            className="px-3 py-1.5 text-sm rounded border border-red-400/40 dark:border-red-300/40 hover:bg-red-100/70 dark:hover:bg-red-500/20"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!hasInsights) {
-=======
     let mounted = true;
 
     const fetchInsights = async () => {
@@ -412,7 +282,7 @@ export default function AIInsights() {
     return () => {
       mounted = false;
       clearInterval(timer);
-       clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
     };
   }, []);
 
@@ -421,7 +291,6 @@ export default function AIInsights() {
   }
 
   if (!loading && (!hasInsights || error)) {
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
     return (
       <div className="p-6">
         <div className="rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-slate-900/60 p-6 flex items-center gap-3 text-gray-700 dark:text-slate-300">
@@ -442,13 +311,9 @@ export default function AIInsights() {
           <CheckCircle2 className="w-5 h-5 text-emerald-400" />
           <div className="text-xl font-semibold text-gray-900 dark:text-white">AI Insights</div>
         </div>
-<<<<<<< HEAD
-        <div className="text-xs text-gray-600 dark:text-slate-400">Last Updated {lastUpdatedLabel}</div>
-=======
         <div className="text-xs text-gray-600 dark:text-slate-400">
           {loading ? 'Loading…' : `Last Updated ${lastUpdated}s ago`}
         </div>
->>>>>>> 526fa79 (fix: scalaton loading & jenkins config)
       </div>
 
       {error && (
