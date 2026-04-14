@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useJenkinsStatus } from '../context/JenkinsStatusContext';
 import { BellIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
@@ -17,11 +18,12 @@ export default function Topbar({ currentTab, onSelect }) {
     : 'bg-amber-100 dark:bg-amber-600 text-amber-800 dark:text-white';
 
   return (
-    <div className="nav-blur flex items-center justify-between px-4 py-3">
+    <div className="navbar nav-blur justify-between">
       {/* Logo */}
-      <div className="flex items-center gap-2">
-        <span className="font-semibold text-lg text-[#7C5CFF]">DCPVAS</span>
-        <span className="text-sm text-slate-300">AI CI/CD Analyzer</span>
+      <div className="flex items-center">
+        <Link to="/" aria-label="Go to Dashboard" className="logo-container">
+          <img src="/logo.png" alt="DCPVAS Logo" />
+        </Link>
       </div>
       {/* Center search */}
       <div className="flex items-center gap-2 w-full max-w-xl">

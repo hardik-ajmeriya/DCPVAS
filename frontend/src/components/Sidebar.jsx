@@ -1,7 +1,7 @@
-import { HomeIcon, Cog6ToothIcon, ListBulletIcon, ChartBarIcon, BugAntIcon, DocumentTextIcon, ExclamationTriangleIcon, SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon, HomeIcon, Cog6ToothIcon, ListBulletIcon, ChartBarIcon, BugAntIcon, DocumentTextIcon, ExclamationTriangleIcon, SunIcon, MoonIcon } from '@heroicons/react/24/outline';
 import { useTheme } from '../context/ThemeContext';
+import MenuItem from './MenuItem';
 
-// Map new labels to existing tabs/pages
 const items = [
   { key: 'Dashboard', label: 'Dashboard', icon: HomeIcon },
   { key: 'Pipelines', label: 'Pipelines', icon: ChartBarIcon },
@@ -12,44 +12,86 @@ const items = [
   { key: 'Settings', label: 'Settings', icon: Cog6ToothIcon },
 ];
 
-export default function Sidebar({ currentTab, onSelect }) {
+const sections = [
+  { title: 'Overview', keys: ['Dashboard', 'Pipelines', 'Execution History'] },
+  { title: 'Intelligence', keys: ['Failures', 'AI Insights', 'Logs'] },
+  { title: 'System', keys: ['Settings'] },
+];
+
+const itemByKey = Object.fromEntries(items.map((item) => [item.key, item]));
+
+export default function Sidebar({ currentTab, onSelect, collapsed, onToggle }) {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <aside className="w-64 border-r border-gray-200 dark:border-white/10 bg-white dark:bg-[#020617] flex flex-col justify-between">
-      <nav className="flex flex-col py-4">
-        {items.map(({ key, label, icon: Icon }) => {
-          const isActive = currentTab === key;
-          return (
-            <button
-              key={key}
-              onClick={() => onSelect(key)}
-              className={`group relative flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 ease-in-out
-                ${isActive
-                  ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 font-medium border-l-4 border-blue-500'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-white'}
-              `}
-            >
-              <Icon className="w-5 h-5 text-gray-500 group-hover:text-blue-500" />
-              <span className="text-sm truncate">{label}</span>
-            </button>
-          );
-        })}
+    <div className="h-full border-r border-white/10 bg-slate-950 flex flex-col justify-between">
+      <div className="px-3 pt-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`group flex items-center rounded-xl border border-white/10 bg-slate-900/80 text-slate-200 hover:bg-slate-800 transition-all duration-300 ${collapsed ? 'w-12 justify-center px-0 py-2.5' : 'w-full gap-2 px-3 py-2.5'}`}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <Bars3Icon className="h-5 w-5" />
+          {!collapsed && <span className="text-sm font-medium">Collapse</span>}
+        </button>
+      </div>
+
+      <nav className="mt-3 flex-1 overflow-y-auto px-3 pb-3">
+        {sections.map((section, index) => (
+          <div key={section.title} className={index === 0 ? '' : 'mt-3'}>
+            {!collapsed && (
+              <div className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                {section.title}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              {section.keys.map((key) => {
+                const item = itemByKey[key];
+                if (!item) return null;
+                return (
+                  <MenuItem
+                    key={item.key}
+                    icon={item.icon}
+                    label={item.label}
+                    isActive={currentTab === item.key}
+                    collapsed={collapsed}
+                    onClick={() => onSelect(item.key)}
+                  />
+                );
+              })}
+            </div>
+
+            {index < sections.length - 1 && <div className="my-3 border-t border-white/10" />}
+          </div>
+        ))}
       </nav>
 
-      <div className="border-t border-gray-200 dark:border-white/10 px-3 py-3">
+      <div className="border-t border-white/10 px-3 py-3">
         <button
           type="button"
           onClick={toggleTheme}
-          className="w-full flex items-center justify-between gap-2 rounded-md px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+          className={`group relative rounded-xl border border-white/10 bg-slate-900/80 text-slate-200 hover:bg-slate-800 transition-all duration-300 ${collapsed ? 'flex w-12 items-center justify-center px-0 py-2.5' : 'flex w-full items-center justify-between gap-2 px-3 py-2.5'}`}
+          title={collapsed ? `Theme: ${theme === 'dark' ? 'Dark' : 'Light'}` : undefined}
         >
-          <span className="flex items-center gap-2">
+          <span className={`flex items-center ${collapsed ? '' : 'gap-2'}`}>
             {theme === 'dark' ? <MoonIcon className="w-4 h-4" /> : <SunIcon className="w-4 h-4" />}
-            <span>Theme: {theme === 'dark' ? 'Dark' : 'Light'}</span>
+            {!collapsed && <span className="text-xs">Theme: {theme === 'dark' ? 'Dark' : 'Light'}</span>}
           </span>
-          <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Toggle</span>
+          {!collapsed && <span className="text-[10px] uppercase tracking-wide text-slate-500">Toggle</span>}
+
+          {collapsed && (
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md border border-white/10 bg-slate-900 px-2 py-1 text-xs text-slate-100 opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100"
+            >
+              Theme: {theme === 'dark' ? 'Dark' : 'Light'}
+            </span>
+          )}
         </button>
       </div>
-    </aside>
+    </div>
   );
 }

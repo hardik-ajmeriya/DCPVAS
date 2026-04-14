@@ -18,9 +18,9 @@ export default function HeroSection() {
         <div className="absolute right-[-6rem] top-24 h-96 w-96 rounded-full bg-[radial-gradient(circle_at_center,_rgba(124,92,255,0.35),_transparent_60%)] blur-3xl" />
       </div>
 
-      <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center gap-12 px-6 pb-20 pt-24 md:flex-row md:items-start md:pt-28">
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center gap-12 px-4 pb-20 pt-24 sm:px-6 md:flex-row md:items-start md:pt-28">
         <motion.div
-          className="max-w-xl flex-1"
+          className="max-w-xl w-full flex-1"
           variants={fadeUp}
           initial="hidden"
           whileInView="show"
@@ -78,15 +78,15 @@ export default function HeroSection() {
         </motion.div>
 
         <motion.div
-          className="relative flex-1 max-w-lg"
+          className="relative flex-1 w-full max-w-lg"
           initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-120px" }}
           transition={{ duration: 0.6, ease: "easeOut" }}
         >
           <div className="absolute -inset-4 rounded-[26px] bg-[radial-gradient(circle_at_top,_rgba(124,92,255,0.65),_transparent_60%)] opacity-60 blur-3xl" />
-          <div className="relative rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-2xl backdrop-blur">
-            <div className="mb-4 flex items-center justify-between gap-2 text-xs text-slate-400">
+          <div className="relative rounded-2xl border border-white/10 bg-slate-950/70 p-3 sm:p-4 shadow-2xl backdrop-blur">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
                 <span>main · build #1847</span>
@@ -96,7 +96,7 @@ export default function HeroSection() {
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 text-xs">
+            <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
               <div className="rounded-xl border border-white/10 bg-slate-900/80 p-3">
                 <p className="text-slate-400">Total runs</p>
                 <p className="mt-1 text-xl font-semibold text-white">326</p>
@@ -131,7 +131,7 @@ export default function HeroSection() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs">
                 <p className="text-[11px] font-medium text-emerald-300">AI Status</p>
                 <p className="mt-1 text-slate-100">No regressions detected across 24h of runs.</p>

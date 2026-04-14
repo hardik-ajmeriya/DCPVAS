@@ -13,6 +13,7 @@ import LogsPage from '../pages/LogsPage';
 
 export default function AppLayout() {
   const [analysisMode, setAnalysisMode] = useState('Rule-Based');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -52,15 +53,28 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#020617] text-gray-900 dark:text-gray-100">
-      <header className="fixed top-0 left-0 w-full h-16 z-50 border-b border-gray-200 dark:border-white/10 bg-white/80 dark:bg-slate-950/90 backdrop-blur">
+      <header className="fixed top-0 left-0 w-full h-[72px] md:h-[88px] z-50 border-b border-gray-200 dark:border-white/10 bg-white/80 dark:bg-slate-950/90 backdrop-blur">
         <Topbar currentTab={currentTab} onSelect={handleSelect} />
       </header>
 
-      <aside className="fixed top-16 left-0 h-[calc(100vh-64px)] w-64 z-40 border-r border-gray-200 dark:border-white/10 bg-white dark:bg-[var(--bg-secondary)]">
-        <Sidebar currentTab={currentTab} onSelect={handleSelect} />
+      <aside
+        className={`fixed top-[72px] md:top-[88px] left-0 h-[calc(100vh-72px)] md:h-[calc(100vh-88px)] z-40 transition-[width] duration-300 ease-in-out ${
+          isSidebarCollapsed ? 'w-20' : 'w-64'
+        }`}
+      >
+        <Sidebar
+          currentTab={currentTab}
+          onSelect={handleSelect}
+          collapsed={isSidebarCollapsed}
+          onToggle={() => setIsSidebarCollapsed((prev) => !prev)}
+        />
       </aside>
 
-      <main className="ml-64 mt-16 h-[calc(100vh-64px)] overflow-y-auto">
+      <main
+        className={`mt-[72px] md:mt-[88px] h-[calc(100vh-72px)] md:h-[calc(100vh-88px)] overflow-y-auto transition-[margin] duration-300 ease-in-out ${
+          isSidebarCollapsed ? 'ml-20' : 'ml-64'
+        }`}
+      >
         <Routes>
           {tabs.map(({ key, path, element }) => (
             <Route key={key} path={path} element={element} />

@@ -19,19 +19,19 @@ export default function AiPreviewSection() {
 
       {/* Error log box full-width */}
       <motion.div
-        className="mb-6 rounded-2xl border border-white/10 bg-black/60 p-4 font-mono text-xs text-slate-200 shadow-[0_22px_70px_rgba(15,23,42,0.95)] backdrop-blur"
+        className="mb-6 max-w-full overflow-x-auto rounded-2xl border border-white/10 bg-black/60 p-4 font-mono text-xs text-slate-200 shadow-[0_22px_70px_rgba(15,23,42,0.95)] backdrop-blur"
         initial={{ opacity: 0, x: -24 }}
         whileInView={{ opacity: 1, x: 0 }}
         viewport={{ once: true, margin: "-80px" }}
         transition={{ duration: 0.45 }}
       >
         <div className="mb-3 flex items-center justify-between text-[11px] text-slate-400">
-          <span>logs/mrc-foods-prod-#24d1ac7</span>
+          <span className="break-all">logs/mrc-foods-prod-#24d1ac7</span>
           <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
             Streaming from Jenkins
           </span>
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1 break-words">
           <p className="text-slate-400">[INFO] Stage 'Build Docker Image'</p>
           <p className="text-slate-400">[INFO] Running on agent jenkins in /var/lib/jenkins/workspace/mrc-foods-prod</p>
           <p className="text-slate-400">[INFO] + git rev-parse --short HEAD</p>

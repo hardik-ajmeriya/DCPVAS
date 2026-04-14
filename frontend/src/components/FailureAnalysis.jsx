@@ -3,6 +3,7 @@ import { CheckCircle } from 'lucide-react';
 import { getPipelineAnalysis, getPipelineBuild } from '../services/api.js';
 import { subscribeLogs } from '../services/socket.js';
 import PipelineGraph from './PipelineGraph';
+import PipelineLogsTable from './logs/PipelineLogsTable';
 
 const DEFAULT_TABS = [
   'Human Summary',
@@ -559,13 +560,10 @@ function RawLogs({ buildNumber, logs, setLogs, finalized }) {
         </button>
       </div>
 
-      {loadingLogs && (!logs || logs.length === 0) ? (
-        <div className="text-xs text-slate-300">Loading logs...</div>
-      ) : (
-        <pre className="text-green-400 text-xs whitespace-pre overflow-auto">
-          {logs || 'No logs available'}
-        </pre>
-      )}
+      <PipelineLogsTable
+        logs={logs}
+        loading={loadingLogs && (!logs || logs.length === 0)}
+      />
     </div>
   );
 }

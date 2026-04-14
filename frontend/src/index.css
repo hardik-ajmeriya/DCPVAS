@@ -1,6 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+	--font-ui: 'Inter', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
+	--font-mono-ui: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
 
 @layer base {
 	body {
@@ -75,7 +82,13 @@ html, body {
 
 /* Apply theme to page */
 body {
-	font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+	font-family: var(--font-ui);
+}
+
+code,
+pre,
+.font-mono {
+	font-family: var(--font-mono-ui);
 }
 
 /* Safe overrides to align existing utility usage with theme variables */
@@ -98,7 +111,7 @@ body {
 .log-viewer {
 	background: var(--log-bg);
 	color: var(--log-text);
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	font-family: var(--font-mono-ui);
 }
 
 /* Theme-aware surfaces for hover/active (sidebar etc.) */
@@ -114,6 +127,56 @@ body {
 	background-image: linear-gradient(135deg, rgba(124, 92, 255, 0.08), rgba(79, 70, 229, 0.08));
 	background-color: var(--nav-surface);
 	border-bottom: 1px solid var(--border-color);
+}
+
+.navbar {
+	height: 88px;
+	display: flex;
+	align-items: center;
+	padding: 0 20px;
+}
+
+.navbar > * {
+	display: flex;
+	align-items: center;
+}
+
+.logo-container {
+	display: flex;
+	align-items: center;
+}
+
+.logo-container img {
+	height: 108px;
+	width: auto;
+	object-fit: contain;
+	transition: transform 0.2s ease;
+}
+
+.logo-container img:hover {
+	transform: scale(1.05);
+}
+
+.logo-text {
+	font-family: 'Inter', sans-serif;
+	font-weight: 600;
+	font-size: 20px;
+	margin-left: 10px;
+	color: white;
+}
+
+@media (max-width: 768px) {
+	.navbar {
+		height: 72px;
+	}
+
+	.logo-container img {
+		height: 48px;
+	}
+
+	.logo-text {
+		font-size: 16px;
+	}
 }
 
 /* Card surface: unified light/dark card design */
@@ -222,4 +285,57 @@ select:focus {
 }
 .animate-number:hover {
 	transform: translateY(-0.5px);
+}
+
+.btn-ripple {
+	position: relative;
+	overflow: hidden;
+	isolation: isolate;
+}
+
+.btn-ripple::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: radial-gradient(circle at center, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 62%);
+	opacity: 0;
+	transform: scale(0.2);
+	transition: opacity 180ms ease, transform 180ms ease;
+	pointer-events: none;
+	z-index: -1;
+}
+
+.btn-ripple:hover::after {
+	opacity: 1;
+	transform: scale(1);
+}
+
+.menu-fade-in {
+	animation: menu-fade-in 160ms ease-out;
+	transform-origin: top right;
+}
+
+@keyframes menu-fade-in {
+	from {
+		opacity: 0;
+		transform: translateY(-6px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+.status-blink {
+	animation: status-blink 1.15s ease-in-out infinite;
+}
+
+@keyframes status-blink {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.55;
+	}
 }

@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import founderPhoto from "../assets/about-founder.jpeg";
 
 export default function FounderStorySection() {
   return (
@@ -10,12 +11,12 @@ export default function FounderStorySection() {
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.5 }}
-          className="flex items-center justify-center"
+          className="founder-image-column justify-center"
         >
           <div className="relative">
             <div className="absolute -inset-1 rounded-3xl bg-gradient-to-tr from-cyan-500/40 via-indigo-500/40 to-violet-500/40 blur-xl" />
-            <div className="relative h-48 w-48 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 shadow-[0_22px_70px_rgba(15,23,42,0.95)] flex items-center justify-center">
-              <div className="h-32 w-32 rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-violet-500 opacity-90" />
+            <div className="founder-image-wrapper relative border border-white/10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+              <img src={founderPhoto} alt="Founder of DCPVAS" />
             </div>
           </div>
         </motion.div>
